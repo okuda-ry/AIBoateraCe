@@ -9,7 +9,9 @@
       "Bash(venvScriptspip install:*)",
       "Bash(\"venv/Scripts/pip\" install:*)",
       "Bash(\"venv/Scripts/python\" -c \"from bs4 import BeautifulSoup; print\\(''OK''\\)\")",
-      "Bash(\"venv/Scripts/python\" app.py)"
+      "Bash(\"venv/Scripts/python\" app.py)",
+      "Bash(python3 -c \":*)",
+      "Bash(python -c \":*)"
     ]
   }
 }
