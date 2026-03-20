@@ -19,11 +19,18 @@ import lightgbm as lgb
 import matplotlib.pyplot as plt
 import matplotlib
 
+try:
+    import optuna
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    _OPTUNA_AVAILABLE = True
+except ImportError:
+    _OPTUNA_AVAILABLE = False
+
 matplotlib.rcParams['font.family'] = 'MS Gothic'
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 BOATS_PER_RACE  = 6
-N_NUMERIC_FEATS = 9   # build_boat_features の最初 9 列が数値特徴量
+N_NUMERIC_FEATS = 10  # build_boat_features の最初 10 列が数値特徴量 (ST追加で9→10)
 
 
 # -------------------------------------------------------
@@ -71,7 +78,8 @@ def train(train_data: tuple,
           learning_rate: float = 0.05,
           num_leaves: int      = 63,
           min_child_samples: int = 20,
-          early_stopping_rounds: int = 50) -> lgb.Booster:
+          early_stopping_rounds: int = 50,
+          **extra_params) -> lgb.Booster:
     """
     LightGBM LambdaRank を学習する。
 
@@ -86,10 +94,23 @@ def train(train_data: tuple,
     """
     if len(train_data) == 4:
         X_boat_tr, X_race_tr, y_tr, pay_tr = train_data
-        pay_mean   = float(np.mean(pay_tr[pay_tr > 0])) if (pay_tr > 0).any() else 1.0
-        w_tr       = np.clip(np.sqrt(pay_tr / (pay_mean + 1e-8)), 0.1, 10.0).astype(np.float32)
+        pay_pos  = pay_tr[pay_tr > 0]
+        pay_mean = float(np.mean(pay_pos)) if len(pay_pos) > 0 else 1.0
+        pay_med  = float(np.median(pay_pos)) if len(pay_pos) > 0 else 1.0
+
+        # 改善: log1p スケールで重みを計算
+        # 理由: sqrt より log はより高配当レースを重視しつつ外れ値を抑制する
+        #       log(1 + pay/median) → 中央値のレースを基準 (weight≈0.69) に正規化
+        w_tr = np.log1p(pay_tr / (pay_med + 1e-8)).astype(np.float32)
+        # 有効レース以外 (pay=0) は weight=0 になるので 0.1 でクリップ
+        w_tr     = np.clip(w_tr, 0.1, None)
+        # 平均を 1.0 に正規化して元のスケール感を保つ
+        w_tr     = w_tr / (w_tr.mean() + 1e-8)
+        w_tr     = np.clip(w_tr, 0.1, 10.0)
         weight_tr  = np.repeat(w_tr, BOATS_PER_RACE)   # 同じレース内の全艇に同じ重み
-        print(f"ペイアウト重み: mean={w_tr.mean():.2f}  min={w_tr.min():.2f}  max={w_tr.max():.2f}")
+        print(f"ペイアウト重み (log1p): mean={w_tr.mean():.2f}  "
+              f"min={w_tr.min():.2f}  max={w_tr.max():.2f}  "
+              f"pay_med={pay_med:.0f}円")
     else:
         X_boat_tr, X_race_tr, y_tr = train_data
         weight_tr = None
@@ -128,6 +149,11 @@ def train(train_data: tuple,
         "lambda_l2":         0.1,
         "verbose":           -1,
     }
+    # Optuna で最適化された全パラメータで上書き
+    # (lambda_l1, lambda_l2, feature_fraction, bagging_fraction 等)
+    if extra_params:
+        params.update(extra_params)
+        print(f"Optuna パラメータを適用: {extra_params}")
 
     booster = lgb.train(
         params,
@@ -194,6 +220,110 @@ def _plackett_luce_probs(scores: np.ndarray):
         top4_lists.append([c for _, c in race_probs[:4]])
 
     return top_probs, top_combos, top4_lists
+
+
+# -------------------------------------------------------
+# Optuna ハイパーパラメータ最適化
+# -------------------------------------------------------
+
+def tune_hyperparams(train_data: tuple,
+                     val_data: tuple,
+                     n_trials: int = 50) -> dict:
+    """
+    Optuna で LightGBM LambdaRank のハイパーパラメータを最適化する。
+
+    最適化対象: num_leaves, learning_rate, min_child_samples,
+                lambda_l1, lambda_l2, feature_fraction, bagging_fraction
+
+    評価指標: 検証データの NDCG@3 (最大化)
+
+    Parameters
+    ----------
+    train_data : (X_boat_tr, X_race_tr, y_tr, pay_tr)
+    val_data   : (X_boat_va, X_race_va, y_va, pay_va)
+    n_trials   : Optuna の試行回数 (推奨: 50〜100)
+
+    Returns
+    -------
+    best_params : dict  最適なハイパーパラメータ
+    """
+    if not _OPTUNA_AVAILABLE:
+        raise ImportError(
+            "optuna がインストールされていません。\n"
+            "pip install optuna でインストールしてください。"
+        )
+
+    X_boat_tr, X_race_tr, y_tr, pay_tr = train_data
+    X_boat_va, X_race_va, y_va, _      = val_data
+
+    X_tr = build_X(X_boat_tr, X_race_tr)
+    X_va = build_X(X_boat_va, X_race_va)
+    y_label_tr = build_y(y_tr)
+    y_label_va = build_y(y_va)
+
+    n_tr = len(X_boat_tr)
+    n_va = len(X_boat_va)
+
+    # ペイアウト重みを事前に計算
+    if pay_tr is not None:
+        pay_pos  = pay_tr[pay_tr > 0]
+        pay_med  = float(np.median(pay_pos)) if len(pay_pos) > 0 else 1.0
+        w_tr     = np.log1p(pay_tr / (pay_med + 1e-8)).astype(np.float32)
+        w_tr     = np.clip(w_tr, 0.1, None)
+        w_tr     = w_tr / (w_tr.mean() + 1e-8)
+        w_tr     = np.clip(w_tr, 0.1, 10.0)
+        weight_tr = np.repeat(w_tr, BOATS_PER_RACE)
+    else:
+        weight_tr = None
+
+    dtrain = lgb.Dataset(X_tr, label=y_label_tr,
+                         group=[BOATS_PER_RACE] * n_tr,
+                         weight=weight_tr)
+    dval   = lgb.Dataset(X_va, label=y_label_va,
+                         group=[BOATS_PER_RACE] * n_va,
+                         reference=dtrain)
+
+    def objective(trial: "optuna.Trial") -> float:
+        params = {
+            "objective":          "lambdarank",
+            "metric":             "ndcg",
+            "ndcg_eval_at":       [3],
+            "num_leaves":         trial.suggest_int("num_leaves", 31, 255),
+            "learning_rate":      trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
+            "min_child_samples":  trial.suggest_int("min_child_samples", 5, 50),
+            "lambda_l1":          trial.suggest_float("lambda_l1", 1e-4, 1.0, log=True),
+            "lambda_l2":          trial.suggest_float("lambda_l2", 1e-4, 1.0, log=True),
+            "feature_fraction":   trial.suggest_float("feature_fraction", 0.5, 1.0),
+            "bagging_fraction":   trial.suggest_float("bagging_fraction", 0.5, 1.0),
+            "bagging_freq":       5,
+            "feature_pre_filter": False,   # Optuna が min_data_in_leaf を変えても安全に動くよう無効化
+            "verbose":            -1,
+        }
+
+        booster = lgb.train(
+            params,
+            dtrain,
+            num_boost_round=1000,
+            valid_sets=[dval],
+            callbacks=[
+                lgb.early_stopping(stopping_rounds=30, verbose=False),
+                lgb.log_evaluation(period=-1),
+            ],
+        )
+        # NDCG@3 の最終スコアを返す
+        return booster.best_score["valid_0"]["ndcg@3"]
+
+    study = optuna.create_study(direction="maximize")
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
+
+    best = study.best_params
+    print("\n=== Optuna 最適化結果 ===")
+    print(f"  試行回数: {n_trials}")
+    print(f"  最良 NDCG@3: {study.best_value:.6f}")
+    for k, v in best.items():
+        print(f"  {k}: {v}")
+
+    return best
 
 
 # -------------------------------------------------------

@@ -16,7 +16,9 @@ flask>=3.0
 # Visualization
 matplotlib>=3.7
 
+# Hyperparameter optimization
+optuna>=3.0
+
 # Optional (for notebooks)
 # seaborn>=0.12
-# optuna>=3.0
 # jupyter>=1.0

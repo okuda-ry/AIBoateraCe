@@ -266,6 +266,113 @@ def evaluate(scores_all: np.ndarray,
     return rr
 
 
+def value_bet_allocate(probs: np.ndarray,
+                       odds_dict: dict,
+                       budget: int   = 1000,
+                       min_edge: float = 0.05,
+                       kelly_frac: float = 0.25,
+                       min_bet: int  = 100) -> dict:
+    """
+    期待値が正の組み合わせにのみ賭けるバリューベッティング。
+
+    EV = prob × odds - 1  (odds は払戻倍率、例: 18.5)
+    EV > min_edge のものだけ購入対象とし、Kelly 規準で配分する。
+
+    Parameters
+    ----------
+    probs       : (120,) 各組み合わせの予測確率
+    odds_dict   : {combo_str: float}  例: {"1-2-3": 18.5}
+                  スクレイピングで取得した払戻倍率
+    min_edge    : 最低エッジ (0.05 = EV が 5% 超の組のみ購入)
+    kelly_frac  : Kelly 分数 (0.25 推奨。1.0 はフル Kelly で高分散)
+
+    Returns
+    -------
+    bets : {combo_str: yen}  — 空 dict = 正 EV なし → 見送り
+    """
+    # odds_dict → (120,) 配列に変換
+    odds_arr = np.zeros(120)
+    for i, combo in enumerate(COMBO_STRS):
+        if combo in odds_dict:
+            odds_arr[i] = float(odds_dict[combo])
+
+    # EV計算: prob × odds - 1  (EV > 0 → 期待値プラス)
+    ev = probs * odds_arr - 1.0
+
+    # 最低エッジ以上 & オッズ取得済み のものだけ購入対象
+    mask = (ev >= min_edge) & (odds_arr > 0)
+    if mask.sum() == 0:
+        return {}
+
+    # 1/4 Kelly: f = (EV / odds) × kelly_frac
+    # Kelly の公式: f* = (b*p - (1-p)) / b  where b = odds - 1
+    b       = np.where(odds_arr > 1, odds_arr - 1.0, 1e-9)
+    kelly_f = np.where(mask, (probs - (1.0 - probs) / b) * kelly_frac, 0.0)
+    kelly_f = np.maximum(kelly_f, 0.0)
+
+    if kelly_f.sum() == 0:
+        return {}
+
+    # 合計 Kelly が 1 超なら正規化（過剰な賭けを防ぐ）
+    if kelly_f.sum() > 1.0:
+        kelly_f = kelly_f / kelly_f.sum()
+
+    raw     = budget * kelly_f
+    amounts = (raw / min_bet).round() * min_bet
+    amounts = np.maximum(amounts, 0.0)
+
+    # 予算超過を Kelly 配分の小さい順に削る
+    for i in np.argsort(kelly_f):
+        if amounts.sum() <= budget:
+            break
+        if amounts[i] >= min_bet:
+            amounts[i] -= min_bet
+
+    # Kelly 計算で全て min_bet 未満に丸まった場合（低確率・高オッズの組み合わせ）
+    # → EV上位の組に min_bet を均等に配分するフォールバック
+    if amounts.sum() == 0 and mask.sum() > 0:
+        ev_vals = np.where(mask, probs * odds_arr - 1.0, -np.inf)
+        top_n   = min(int(budget // min_bet), int(mask.sum()))
+        top_idx = np.argsort(-ev_vals)[:top_n]
+        for i in top_idx:
+            if amounts.sum() + min_bet <= budget:
+                amounts[i] = min_bet
+
+    result = {COMBO_STRS[i]: int(amounts[i]) for i in range(120) if amounts[i] >= min_bet}
+
+    if result:
+        purchased_ev = [ev[i] for i, c in enumerate(COMBO_STRS) if c in result]
+        print(f"[kelly] バリューベット: {len(result)}通り  "
+              f"平均EV={np.mean(purchased_ev)*100:.1f}%  "
+              f"合計={sum(result.values())}円")
+    return result
+
+
+def compute_ev_table(probs: np.ndarray, odds_dict: dict) -> list[dict]:
+    """
+    全組み合わせの期待値テーブルを返す（表示・デバッグ用）。
+
+    Returns
+    -------
+    rows : [{"combo": str, "prob_pct": float, "odds": float, "ev_pct": float}, ...]
+           EV降順でソート済み
+    """
+    rows = []
+    for i, combo in enumerate(COMBO_STRS):
+        odds = float(odds_dict.get(combo, 0.0))
+        if odds <= 0:
+            continue
+        ev = probs[i] * odds - 1.0
+        rows.append({
+            "combo":   combo,
+            "prob_pct": round(probs[i] * 100, 2),
+            "odds":    odds,
+            "ev_pct":  round(ev * 100, 1),
+        })
+    rows.sort(key=lambda x: -x["ev_pct"])
+    return rows
+
+
 def compare_strategies(scores_all: np.ndarray,
                        actual_strs: np.ndarray,
                        payouts_all: np.ndarray,

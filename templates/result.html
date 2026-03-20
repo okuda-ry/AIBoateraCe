@@ -43,6 +43,25 @@
 </div>
 {% endif %}
 
+<!-- オッズ取得ステータス -->
+{% if r.has_odds %}
+<div class="alert-odds-ok mb-3">
+  <i class="bi bi-graph-up-arrow me-2"></i>
+  <strong>リアルタイムオッズ取得済み</strong> —
+  {% if r.bet_mode == "value" %}
+    期待値プラスの組み合わせのみ <strong>バリューベット</strong> で配分しています。
+  {% else %}
+    オッズは表示に使用。ベットは比例配分で行っています。
+  {% endif %}
+</div>
+{% else %}
+<div class="alert-odds-na mb-3">
+  <i class="bi bi-exclamation-circle me-2"></i>
+  <strong>オッズ未取得</strong> —
+  締切前でない / 受付前の可能性があります。確率に基づく比例配分を使用しています。
+</div>
+{% endif %}
+
 <!-- 信頼度バナー -->
 <div class="confidence-banner mb-4
   {% if r.confidence >= 35 %}confidence-high
@@ -127,6 +146,7 @@
             <th>#</th>
             <th>組番</th>
             <th>確率</th>
+            {% if r.has_odds %}<th>オッズ</th><th>EV</th>{% endif %}
           </tr>
         </thead>
         <tbody>
@@ -146,6 +166,18 @@
                 <span class="prob-label">{{ t.prob_pct }}%</span>
               </div>
             </td>
+            {% if r.has_odds %}
+            <td class="text-end odds-cell">
+              {% if t.odds %}{{ t.odds }}x{% else %}—{% endif %}
+            </td>
+            <td class="text-end small fw-bold
+              {% if t.ev_pct and t.ev_pct > 0 %}text-success
+              {% elif t.ev_pct %}text-danger{% endif %}">
+              {% if t.ev_pct is not none %}
+                {% if t.ev_pct > 0 %}+{% endif %}{{ t.ev_pct }}%
+              {% else %}—{% endif %}
+            </td>
+            {% endif %}
           </tr>
           {% endfor %}
         </tbody>
@@ -160,6 +192,11 @@
   <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
     <h5 class="section-title mb-0">
       <i class="bi bi-cash-stack me-2"></i>推奨ベット配分
+      {% if r.bet_mode == "value" %}
+        <span class="badge-value-bet ms-2">バリューベット</span>
+      {% else %}
+        <span class="badge-prop-bet ms-2">比例配分</span>
+      {% endif %}
     </h5>
     <div class="budget-summary">
       <span class="budget-label">予算</span>
@@ -176,27 +213,77 @@
   {% if r.bets %}
     <div class="bets-grid">
       {% for bet in r.bets %}
-      <div class="bet-card">
+      <div class="bet-card {% if bet.ev_pct and bet.ev_pct > 0 %}bet-card-value{% endif %}">
         <div class="bet-combo">{{ bet.combo }}</div>
         <div class="bet-bar-wrap">
           <div class="bet-bar-fill" style="width: {{ bet.bar_pct }}%;"></div>
         </div>
         <div class="bet-amount">{{ bet.amount }}円</div>
+        {% if bet.ev_pct is not none %}
+        <div class="bet-ev {% if bet.ev_pct > 0 %}bet-ev-pos{% else %}bet-ev-neg{% endif %}">
+          EV {% if bet.ev_pct > 0 %}+{% endif %}{{ bet.ev_pct }}%
+        </div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
     <div class="bet-note mt-3">
       <i class="bi bi-info-circle me-1"></i>
-      各組番の確率に比例して {{ r.budget }}円を配分しています。
+      {% if r.bet_mode == "value" %}
+        期待値（EV）がプラスの組み合わせに 1/4 Kelly 規準で {{ r.budget }}円を配分しています。
+      {% else %}
+        各組番の確率に比例して {{ r.budget }}円を配分しています。
+      {% endif %}
       残り {{ r.budget - r.total_bet }}円は端数切り捨てによる余剰です。
     </div>
   {% else %}
     <div class="skip-message">
       <i class="bi bi-shield-exclamation me-2"></i>
-      高確率な組み合わせが検出されませんでした。このレースは見送りを推奨します。
+      {% if r.has_odds %}
+        期待値プラスの組み合わせが見つかりませんでした。このレースは見送りを推奨します。
+      {% else %}
+        高確率な組み合わせが検出されませんでした。このレースは見送りを推奨します。
+      {% endif %}
     </div>
   {% endif %}
 </div>
+
+<!-- EV テーブル（オッズ取得済みかつ上位EVあり） -->
+{% if r.has_odds and r.ev_table %}
+<div class="card-dark p-4 mt-4">
+  <h5 class="section-title mb-3">
+    <i class="bi bi-table me-2"></i>期待値ランキング（EV 上位20通り）
+  </h5>
+  <div class="table-responsive">
+    <table class="ev-table w-100">
+      <thead>
+        <tr>
+          <th>組番</th>
+          <th>モデル確率</th>
+          <th>オッズ</th>
+          <th>期待値 (EV)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in r.ev_table %}
+        <tr class="{% if row.ev_pct > 0 %}ev-row-pos{% else %}ev-row-neg{% endif %}">
+          <td><span class="combo-str">{{ row.combo }}</span></td>
+          <td>{{ row.prob_pct }}%</td>
+          <td>{{ row.odds }}x</td>
+          <td class="fw-bold {% if row.ev_pct > 0 %}text-success{% else %}text-danger{% endif %}">
+            {% if row.ev_pct > 0 %}+{% endif %}{{ row.ev_pct }}%
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-muted small mt-2">
+    <i class="bi bi-info-circle me-1"></i>
+    EV = モデル確率 × オッズ − 1。プラスならモデルが市場より高く評価している組み合わせ。
+  </p>
+</div>
+{% endif %}
 
 <!-- 戻るボタン -->
 <div class="text-center mt-4">

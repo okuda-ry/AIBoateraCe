@@ -10,9 +10,12 @@
 import argparse
 import sys
 
+import numpy as np
+
 from data.preprocess import load_and_merge, build_dataset, split_and_scale
 from models import ranking, baseline, lgbm_ranking
 from models.kelly_betting import compare_strategies
+from models.calibration import fit_calibrator, save_calibrator
 
 
 def _get_race_columns(df) -> list:
@@ -24,7 +27,7 @@ def _get_race_columns(df) -> list:
     return num_cols + list(ohe_df.columns)
 
 
-def _save_model(booster, scalers, race_cols: list):
+def _save_model(booster, scalers, race_cols: list, calibrator=None):
     """学習済みモデル・スケーラー・特徴量メタデータを保存する。"""
     import os, joblib
 
@@ -35,10 +38,16 @@ def _save_model(booster, scalers, race_cols: list):
     joblib.dump(scalers,    f"{save_dir}/scalers.pkl")
     joblib.dump(race_cols,  f"{save_dir}/race_columns.pkl")
 
-    print(f"[save] {save_dir}/ に保存: lgbm_booster.txt, scalers.pkl, race_columns.pkl")
+    saved = "lgbm_booster.txt, scalers.pkl, race_columns.pkl"
+    if calibrator is not None:
+        save_calibrator(calibrator, f"{save_dir}/calibrator.pkl")
+        saved += ", calibrator.pkl"
+
+    print(f"[save] {save_dir}/ に保存: {saved}")
 
 
-def train_lgbm(timetable_path: str, details_path: str):
+def train_lgbm(timetable_path: str, details_path: str,
+               use_optuna: bool = False, optuna_trials: int = 50):
     """LightGBM LambdaRank を学習・評価する（推奨）。"""
     df = load_and_merge(timetable_path, details_path)
 
@@ -51,7 +60,17 @@ def train_lgbm(timetable_path: str, details_path: str):
         valid_mask, trifecta_str, trifecta_pay,
     )
 
-    booster = lgbm_ranking.train(train_data, val_data)
+    # Optuna でハイパーパラメータ最適化（指定時）
+    extra_kwargs = {}
+    if use_optuna:
+        print(f"\n[Optuna] ハイパーパラメータ最適化 ({optuna_trials} trials)...")
+        best_params = lgbm_ranking.tune_hyperparams(
+            train_data, val_data, n_trials=optuna_trials
+        )
+        # 全パラメータを渡す（num_leaves/lr/min_child_samples + lambda_l1/l2/feature_fraction等）
+        extra_kwargs = best_params
+
+    booster = lgbm_ranking.train(train_data, val_data, **extra_kwargs)
     lgbm_ranking.evaluate(booster, test_data)
     lgbm_ranking.evaluate_threshold(booster, test_data)
 
@@ -60,9 +79,17 @@ def train_lgbm(timetable_path: str, details_path: str):
     scores_all = lgbm_ranking._predict_scores(booster, X_boat_te, X_race_te)
     compare_strategies(scores_all, y_tri_str_te, y_tri_pay_te, budget=1000)
 
+    # ─── 確率校正（Isotonic Regression）───────────────────
+    # 検証データで softmax → 真の当選率 へのマッピングを学習する
+    X_boat_va, X_race_va, y_va, _ = val_data
+    scores_va   = lgbm_ranking._predict_scores(booster, X_boat_va, X_race_va)
+    exp_va      = np.exp(scores_va - scores_va.max(axis=1, keepdims=True))
+    boat_probs_va = exp_va / exp_va.sum(axis=1, keepdims=True)   # (n_val, 6)
+    calibrator  = fit_calibrator(boat_probs_va, y_va)
+
     # モデル保存
     race_cols = _get_race_columns(df)
-    _save_model(booster, scalers, race_cols)
+    _save_model(booster, scalers, race_cols, calibrator)
 
 
 def train_ranking(timetable_path: str, details_path: str):
@@ -160,10 +187,19 @@ if __name__ == "__main__":
         default="downloads/results/details/details_200901-240901.csv",
         help="競走成績詳細 CSV パス",
     )
+    parser.add_argument(
+        "--optuna", action="store_true",
+        help="Optuna でハイパーパラメータを最適化してから学習する (lgbm のみ)",
+    )
+    parser.add_argument(
+        "--optuna-trials", type=int, default=50,
+        help="Optuna の試行回数 (default: 50)",
+    )
     args = parser.parse_args()
 
     if args.model == "lgbm":
-        train_lgbm(args.timetable, args.details)
+        train_lgbm(args.timetable, args.details,
+                   use_optuna=args.optuna, optuna_trials=args.optuna_trials)
     elif args.model == "ranking":
         train_ranking(args.timetable, args.details)
     else:

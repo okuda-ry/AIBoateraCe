@@ -21,6 +21,9 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Bootstrap の text-muted をダークテーマ用に上書き */
+.text-muted { color: #9ab0c0 !important; }
+
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -41,7 +44,7 @@ body {
 .brand-text    { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
 .brand-sub     { font-size: .7rem; font-weight: 400; color: var(--text-muted);
                   display: block; margin-top: -3px; letter-spacing: .1em; }
-.navbar .nav-link { color: var(--text-muted) !important; font-size: .875rem; }
+.navbar .nav-link { color: #9ab0c0 !important; font-size: .9rem; }
 .navbar .nav-link:hover { color: var(--text-primary) !important; }
 
 /* ---- カード ---- */
@@ -60,25 +63,24 @@ body {
 }
 .hero-icon  { font-size: 3rem; margin-bottom: .5rem; }
 .hero-title { font-size: 1.8rem; font-weight: 800; color: var(--text-primary); margin-bottom: .4rem; }
-.hero-sub   { color: var(--text-muted); font-size: .95rem; }
+.hero-sub   { color: #9ab0c0; font-size: .95rem; }
 
 /* ---- フォーム ---- */
 .form-label-custom {
   display: block;
-  color: var(--text-muted);
-  font-size: .8rem;
+  color: #b0bac8;
+  font-size: .85rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .05em;
-  margin-bottom: .4rem;
+  letter-spacing: .03em;
+  margin-bottom: .45rem;
 }
 .form-control-custom {
   background: var(--bg-card-alt);
-  border: 1px solid var(--border);
+  border: 1px solid #444c56;
   border-radius: 8px;
   color: var(--text-primary);
-  padding: .55rem .9rem;
-  font-size: .9rem;
+  padding: .6rem 1rem;
+  font-size: .95rem;
   width: 100%;
   transition: border-color .15s;
 }
@@ -87,26 +89,60 @@ body {
   border-color: var(--accent);
   background: var(--bg-card-alt);
   color: var(--text-primary);
-  box-shadow: 0 0 0 3px rgba(88, 166, 255, .15);
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, .2);
 }
 .form-control-custom option { background: var(--bg-card); }
-.form-hint { font-size: .78rem; color: var(--text-muted); }
+.form-hint { font-size: .82rem; color: #8fa0b0; margin-top: .3rem; }
 
 .input-group-custom { position: relative; }
 .input-group-custom .form-control-custom { padding-right: 2.5rem; }
 .input-suffix {
   position: absolute; right: .75rem; top: 50%;
   transform: translateY(-50%);
-  color: var(--text-muted); font-size: .85rem; pointer-events: none;
+  color: #8fa0b0; font-size: .9rem; pointer-events: none;
 }
 
-.form-check-custom { display: flex; align-items: center; gap: .5rem; padding-top: .3rem; }
+.form-check-custom { display: flex; align-items: center; gap: .55rem; padding-top: .25rem; }
 .form-check-custom .form-check-input {
-  background: var(--bg-card-alt);
-  border-color: var(--border);
-  width: 1rem; height: 1rem;
+  background-color: var(--bg-card-alt);
+  border: 2px solid #6a7785;
+  border-radius: 4px;
+  width: 1.15rem; height: 1.15rem;
+  flex-shrink: 0;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  transition: background-color .15s, border-color .15s;
 }
-.form-check-custom .form-check-label { color: var(--text-muted); font-size: .875rem; }
+.form-check-custom .form-check-input:checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+.form-check-custom .form-check-input:checked::after {
+  content: '';
+  position: absolute;
+  left: 3px; top: 0px;
+  width: 5px; height: 9px;
+  border: 2px solid #0d1117;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+.form-check-custom .form-check-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, .3);
+}
+.form-check-custom .form-check-label { color: #c9d1d9; font-size: .9rem; cursor: pointer; }
+
+/* ---- オプションボックス ---- */
+.option-box {
+  background: var(--bg-card-alt);
+  border: 1px solid #3a4250;
+  border-radius: 10px;
+  padding: .85rem 1rem;
+}
+.edge-hint { font-size: .82rem; color: #8fa0b0; white-space: nowrap; }
 
 /* ---- タブ ---- */
 .nav-tabs-custom {
@@ -119,9 +155,9 @@ body {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  padding: .5rem 1.1rem;
-  font-size: .875rem;
+  color: #9ab0c0;
+  padding: .55rem 1.2rem;
+  font-size: .9rem;
   font-weight: 500;
   cursor: pointer;
   transition: color .15s, border-color .15s;
@@ -168,15 +204,15 @@ body {
 
 /* ---- 使い方 ---- */
 .section-title {
-  font-size: .85rem;
+  font-size: .9rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: .08em;
-  color: var(--text-muted);
+  letter-spacing: .06em;
+  color: #b0bac8;
 }
-.how-to-list { color: var(--text-muted); font-size: .875rem; padding-left: 1.2rem; line-height: 2; }
-.how-to-list code { background: #2d333b; padding: .1em .4em; border-radius: 4px;
-                     color: var(--accent); font-size: .85em; }
+.how-to-list { color: #a0b0be; font-size: .9rem; padding-left: 1.2rem; line-height: 2.1; }
+.how-to-list code { background: #2d333b; padding: .15em .45em; border-radius: 4px;
+                     color: var(--accent); font-size: .88em; }
 
 /* ---- フッター ---- */
 .footer { border-top: 1px solid var(--border); background: var(--bg-card); }
@@ -200,7 +236,7 @@ body {
   color: var(--text-primary);
   font-size: 1.3rem;
 }
-.race-meta { color: var(--text-muted); font-size: .875rem; }
+.race-meta { color: #9ab0c0; font-size: .875rem; }
 
 .weather-box {
   display: flex;
@@ -210,7 +246,7 @@ body {
   border-radius: 10px;
   padding: .6rem 1rem;
 }
-.weather-item { font-size: .875rem; color: var(--text-muted); }
+.weather-item { font-size: .875rem; color: #9ab0c0; }
 .weather-icon { margin-right: .3rem; }
 
 /* ---- 信頼度バナー ---- */
@@ -223,17 +259,17 @@ body {
 .confidence-mid    { background: rgba(210,153,34,.12); border-color: var(--accent-orange); }
 .confidence-low    { background: rgba(248,81,73,.1);   border-color: var(--border); }
 
-.conf-label  { color: var(--text-muted); font-size: .8rem; margin-right: .4rem; }
+.conf-label  { color: #9ab0c0; font-size: .85rem; margin-right: .4rem; }
 .conf-value  { font-size: 1.4rem; font-weight: 800; }
 .conf-badge  {
-  font-size: .75rem; font-weight: 700; padding: .15em .5em;
+  font-size: .78rem; font-weight: 700; padding: .15em .5em;
   border-radius: 99px; margin-left: .4rem;
 }
 .confidence-high  .conf-badge { background: var(--accent-green); color: #0d1117; }
 .confidence-mid   .conf-badge { background: var(--accent-orange); color: #0d1117; }
 .confidence-low   .conf-badge { background: var(--border); color: var(--text-muted); }
 
-.conf-top { color: var(--text-muted); font-size: .875rem; }
+.conf-top { color: #9ab0c0; font-size: .875rem; }
 .combo-highlight { color: var(--text-primary); font-size: 1.1rem; letter-spacing: .05em; }
 
 .conf-bar { height: 4px; background: rgba(255,255,255,.1); border-radius: 2px; overflow: hidden; }
@@ -248,12 +284,12 @@ body {
 .boat-table-wrapper { overflow-x: auto; }
 .boat-table { border-collapse: collapse; font-size: .9rem; }
 .boat-table th {
-  color: var(--text-muted);
-  font-size: .75rem;
+  color: #9ab0c0;
+  font-size: .78rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .06em;
-  padding: .5rem .75rem;
+  padding: .55rem .75rem;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
@@ -281,7 +317,7 @@ body {
   min-width: 60px;
 }
 .prob-bar-fill { height: 100%; border-radius: 3px; min-width: 2px; transition: width .4s ease; }
-.prob-label { font-size: .8rem; color: var(--text-muted); min-width: 3.5rem; text-align: right; }
+.prob-label { font-size: .82rem; color: #9ab0c0; min-width: 3.5rem; text-align: right; }
 
 /* ---- 着順メダル ---- */
 .rank-medal {
@@ -292,19 +328,20 @@ body {
 .gold   { background: var(--gold);   color: #111; }
 .silver { background: var(--silver); color: #111; }
 .bronze { background: var(--bronze); color: #fff; }
-.rank-other { font-size: .8rem; color: var(--text-muted); }
+.rank-other { font-size: .8rem; color: #9ab0c0; }
 
 /* ---- 3連単テーブル ---- */
 .trifecta-table { border-collapse: collapse; font-size: .875rem; }
 .trifecta-table th {
-  color: var(--text-muted); font-size: .72rem; font-weight: 600;
+  color: #9ab0c0; font-size: .75rem; font-weight: 600;
   text-transform: uppercase; letter-spacing: .06em;
   padding: .5rem .6rem; border-bottom: 1px solid var(--border);
 }
 .trifecta-table td { padding: .55rem .6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .trifecta-table tr:last-child td { border-bottom: none; }
 .top-combo-row { background: rgba(255,215,0,.06); }
-.rank-num { color: var(--text-muted); font-size: .8rem; text-align: center; }
+.rank-num { color: #9ab0c0; font-size: .82rem; text-align: center; }
+.odds-cell { text-align: right; font-size: .88rem; color: #c9d1d9; white-space: nowrap; }
 .combo-str {
   font-family: monospace; font-size: .95rem; font-weight: 600;
   letter-spacing: .08em; color: var(--text-primary);
@@ -332,7 +369,7 @@ body {
 .bet-bar-fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width .5s ease; }
 .bet-amount { text-align: right; font-weight: 600; color: var(--text-primary); font-size: .9rem; }
 
-.budget-summary { font-size: .875rem; color: var(--text-muted); }
+.budget-summary { font-size: .875rem; color: #9ab0c0; }
 .budget-value { color: var(--text-primary); font-weight: 700; }
 .budget-sep { color: var(--border); }
 .badge-skip {
@@ -340,13 +377,83 @@ body {
   border-radius: 99px; padding: .15em .6em;
   font-size: .75rem; font-weight: 700;
 }
-.bet-note { font-size: .78rem; color: var(--text-muted); }
+.bet-note { font-size: .82rem; color: #9ab0c0; }
 
 .skip-message {
   background: rgba(248,81,73,.1);
   border: 1px solid rgba(248,81,73,.3);
   border-radius: 8px;
   padding: 1rem;
-  font-size: .875rem;
-  color: var(--text-muted);
+  font-size: .9rem;
+  color: #c9d1d9;
 }
+
+/* ---- オッズ・バリューベット関連 ---- */
+.alert-odds-ok {
+  background: rgba(63,185,80,.1);
+  border: 1px solid rgba(63,185,80,.35);
+  border-radius: 8px;
+  padding: .65rem 1rem;
+  font-size: .875rem;
+  color: var(--accent-green);
+}
+.alert-odds-na {
+  background: rgba(210,153,34,.08);
+  border: 1px solid rgba(210,153,34,.3);
+  border-radius: 8px;
+  padding: .65rem 1rem;
+  font-size: .875rem;
+  color: var(--accent-orange);
+}
+
+.badge-value-bet {
+  background: linear-gradient(135deg, #1a7f37, #2ea043);
+  color: #fff;
+  border-radius: 99px;
+  padding: .15em .65em;
+  font-size: .72rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.badge-prop-bet {
+  background: rgba(88,166,255,.15);
+  color: var(--accent);
+  border: 1px solid rgba(88,166,255,.3);
+  border-radius: 99px;
+  padding: .15em .65em;
+  font-size: .72rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.bet-card-value {
+  border-color: rgba(63,185,80,.45) !important;
+  background: rgba(63,185,80,.06) !important;
+}
+.bet-ev {
+  grid-column: 1 / -1;
+  font-size: .72rem;
+  font-weight: 700;
+  text-align: right;
+}
+.bet-ev-pos { color: var(--accent-green); }
+.bet-ev-neg { color: var(--text-muted); }
+
+/* EV テーブル */
+.ev-table {
+  font-size: .83rem;
+  border-collapse: collapse;
+}
+.ev-table th {
+  color: #9ab0c0;
+  border-bottom: 1px solid var(--border);
+  padding: .4rem .6rem;
+  text-align: left;
+  font-weight: 600;
+}
+.ev-table td {
+  padding: .35rem .6rem;
+  border-bottom: 1px solid rgba(48,54,61,.5);
+}
+.ev-row-pos { background: rgba(63,185,80,.04); }
+.ev-row-neg { opacity: .75; }

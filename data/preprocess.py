@@ -22,6 +22,7 @@ DETAILS_PATH   = "downloads/results/details/details_200901-240901.csv"
 BOAT_NUM_FEATS   = [
     "年齢", "体重", "全国勝率", "全国2連対率",
     "当地勝率", "当地2連対率", "モーター2連対率", "ボート2連対率", "早見",
+    "今節平均ST",  # 今節の平均スタートタイム (小さいほど早い = 有利)
 ]
 BOAT_TODAY_FEATS = [f"今節成績_{i}-{j}" for i in range(1, 7) for j in range(1, 3)]
 KYUBETSU_MAP     = {"A1": 3.0, "A2": 2.0, "B1": 1.0, "B2": 0.0}
@@ -110,7 +111,18 @@ def build_boat_features(df: pd.DataFrame) -> np.ndarray:
     feat_list = []
     for n in range(1, 7):
         p     = f"{n}枠_"
-        num   = df[[p + f for f in BOAT_NUM_FEATS]].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        # 今節平均ST は CSV に存在しない場合があるので個別に処理
+        base_feats = [f for f in BOAT_NUM_FEATS if f != "今節平均ST"]
+        num_base = df[[p + f for f in base_feats]].apply(pd.to_numeric, errors="coerce").fillna(0).values
+
+        st_col = p + "今節平均ST"
+        if st_col in df.columns:
+            st_vals = pd.to_numeric(df[st_col], errors="coerce").fillna(0.18).values.reshape(-1, 1)
+        else:
+            # CSVに列がない場合は全国平均 (0.18) で埋める
+            st_vals = np.full((len(df), 1), 0.18, dtype=np.float32)
+
+        num   = np.concatenate([num_base, st_vals], axis=1)
         today = df[[p + f for f in BOAT_TODAY_FEATS]].apply(pd.to_numeric, errors="coerce").fillna(0).values
         kyu   = df[p + "級別"].map(KYUBETSU_MAP).fillna(0).values.reshape(-1, 1)
         lane  = np.full((len(df), 1), float(n), dtype=np.float32)  # 枠番 1-6

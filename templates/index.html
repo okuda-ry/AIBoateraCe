@@ -46,9 +46,9 @@
             <div class="mb-3">
               <label class="form-label-custom">出走表 URL</label>
               <input type="url" class="form-control-custom" name="url"
-                     placeholder="https://www.heiwajima.gr.jp/... または https://www.boatrace.jp/owpc/pc/race/racelist?jcd=04&hd=20260320&rno=1"
+                     placeholder="https://www.boatrace.jp/owpc/pc/race/racelist?jcd=04&hd=20260320&rno=1"
                      {% if not model_ready %}disabled{% endif %}>
-              <div class="form-hint mt-1">
+              <div class="form-hint">
                 平和島・戸田など各会場サイトの URL、または boatrace.jp の出走表 URL をそのままペーストできます。
               </div>
             </div>
@@ -99,8 +99,10 @@
 
         <!-- 共通オプション -->
         <hr class="divider my-4">
-        <div class="row g-3 align-items-end">
-          <div class="col-sm-5">
+
+        <div class="row g-3 mb-3">
+          <!-- 予算 -->
+          <div class="col-sm-4">
             <label class="form-label-custom">
               <i class="bi bi-cash-coin me-1"></i>1レース予算（円）
             </label>
@@ -111,19 +113,43 @@
               <span class="input-suffix">円</span>
             </div>
           </div>
-          <div class="col-sm-4">
-            <label class="form-label-custom">オプション</label>
-            <div class="form-check-custom">
-              <input class="form-check-input" type="checkbox" name="debug" value="1" id="debug-check">
-              <label class="form-check-label" for="debug-check">デバッグ出力</label>
+
+          <!-- ベット方式 -->
+          <div class="col-sm-8">
+            <label class="form-label-custom">ベット方式</label>
+            <div class="option-box">
+              <div class="form-check-custom mb-3">
+                <input class="form-check-input" type="checkbox" name="use_odds"
+                       value="1" id="use-odds-check" checked
+                       {% if not model_ready %}disabled{% endif %}>
+                <label class="form-check-label" for="use-odds-check">
+                  <i class="bi bi-graph-up-arrow me-1 text-success"></i>
+                  リアルタイムオッズ取得（バリューベット）
+                </label>
+              </div>
+              <div class="d-flex align-items-center gap-3 flex-wrap" id="edge-row">
+                <label class="form-label-custom mb-0" style="white-space:nowrap">
+                  最低期待値 (EV)
+                </label>
+                <input type="number" class="form-control-custom" style="width:100px; flex-shrink:0"
+                       name="min_edge" value="0.05" min="0" max="1" step="0.01"
+                       {% if not model_ready %}disabled{% endif %}>
+                <span class="form-hint mb-0">0.05 = EV 5% 以上のみ購入</span>
+              </div>
             </div>
           </div>
-          <div class="col-sm-3 text-end">
-            <button type="submit" class="btn-predict w-100"
-                    {% if not model_ready %}disabled{% endif %}>
-              <i class="bi bi-lightning-fill me-1"></i>予測する
-            </button>
+        </div>
+
+        <!-- デバッグ + 予測ボタン -->
+        <div class="d-flex align-items-center justify-content-between mt-2 pt-2">
+          <div class="form-check-custom">
+            <input class="form-check-input" type="checkbox" name="debug" value="1" id="debug-check">
+            <label class="form-check-label" for="debug-check">デバッグ出力</label>
           </div>
+          <button type="submit" class="btn-predict px-5"
+                  {% if not model_ready %}disabled{% endif %}>
+            <i class="bi bi-lightning-fill me-2"></i>予測する
+          </button>
         </div>
 
       </form>
@@ -134,8 +160,9 @@
       <h6 class="section-title mb-3"><i class="bi bi-info-circle me-2"></i>使い方</h6>
       <ol class="how-to-list">
         <li>先に <code>python train.py lgbm</code> でモデルを学習する</li>
-        <li>レースが始まる前（スタート展示後）に URL またはレース情報を入力</li>
-        <li>予測ボタンを押すと出走表・直前情報を自動取得して予測</li>
+        <li>スタート展示後（展示タイム公開後）に URL またはレース情報を入力</li>
+        <li>「リアルタイムオッズ取得」を ON にすると 3連単オッズも自動取得</li>
+        <li>期待値プラスの組み合わせにのみ Kelly 規準で配分（バリューベット）</li>
         <li>表示された推奨ベットを参考に購入（自己責任）</li>
       </ol>
     </div>
@@ -153,6 +180,15 @@
   document.getElementById('manual-tab').addEventListener('shown.bs.tab', () => {
     document.querySelector('[name=mode]').value = 'manual';
   });
+
+  // オッズチェックに連動して最低期待値行を表示/非表示
+  const oddsCheck = document.getElementById('use-odds-check');
+  const edgeRow   = document.getElementById('edge-row');
+  function syncEdgeRow() {
+    edgeRow.style.display = oddsCheck.checked ? '' : 'none';
+  }
+  oddsCheck.addEventListener('change', syncEdgeRow);
+  syncEdgeRow();
 
   // 送信中スピナー
   document.getElementById('predict-form').addEventListener('submit', function () {

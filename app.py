@@ -16,9 +16,13 @@ import lightgbm as lgb
 import numpy as np
 from flask import Flask, flash, redirect, render_template, request, url_for
 
-from data.scraper import scrape_race, VENUE_JCD
+from data.scraper import scrape_race, scrape_odds, VENUE_JCD
 from models.lgbm_ranking import _predict_scores, build_X
-from models.kelly_betting import plackett_luce_probs, proportional_allocate, COMBO_STRS
+from models.kelly_betting import (
+    plackett_luce_probs, proportional_allocate,
+    value_bet_allocate, compute_ev_table, COMBO_STRS,
+)
+from models.calibration import load_calibrator, apply_calibration
 
 app = Flask(__name__)
 app.secret_key = "boatrace_ai_2026"
@@ -57,12 +61,14 @@ def get_model():
     """モデルをロード（初回のみ）してキャッシュする。"""
     if "booster" not in _cache:
         if not (MODEL_DIR / "lgbm_booster.txt").exists():
-            return None, None, None
+            return None, None, None, None
         _cache["booster"]      = lgb.Booster(model_file=str(MODEL_DIR / "lgbm_booster.txt"))
         _cache["scalers"]      = joblib.load(MODEL_DIR / "scalers.pkl")
         _cache["race_columns"] = joblib.load(MODEL_DIR / "race_columns.pkl")
+        _cache["calibrator"]   = load_calibrator(str(MODEL_DIR / "calibrator.pkl"))
         print("[app] モデルロード完了")
-    return _cache["booster"], _cache["scalers"], _cache["race_columns"]
+    return (_cache["booster"], _cache["scalers"],
+            _cache["race_columns"], _cache["calibrator"])
 
 
 # -------------------------------------------------------
@@ -71,11 +77,13 @@ def get_model():
 
 def run_prediction(jcd: str, hd: str, rno: int,
                    venue_name: str, nichiji: int,
-                   budget: int, debug: bool = False) -> dict:
+                   budget: int, use_odds: bool = True,
+                   min_edge: float = 0.05,
+                   debug: bool = False) -> dict:
     """
     スクレイピング → スケーリング → 予測 → 結果辞書を返す。
     """
-    booster, scalers, race_columns = get_model()
+    booster, scalers, race_columns, calibrator = get_model()
     if booster is None:
         raise RuntimeError("モデルが見つかりません。先に python train.py lgbm を実行してください。")
 
@@ -102,17 +110,41 @@ def run_prediction(jcd: str, hd: str, rno: int,
     X_race = race_scaler.transform(race_features)
 
     # スコア予測
-    scores   = _predict_scores(booster, X_boat, X_race)[0]   # (6,)
-    exp_s    = np.exp(scores - scores.max())
-    boat_prob = exp_s / exp_s.sum()                            # softmax (6,)
-    rank_order = np.argsort(-scores)                           # 0-indexed
+    scores        = _predict_scores(booster, X_boat, X_race)[0]   # (6,)
+    exp_s         = np.exp(scores - scores.max())
+    boat_prob_raw = exp_s / exp_s.sum()                            # softmax (6,)
 
-    # 120 通りの PL 確率
-    probs_120 = plackett_luce_probs(scores)
+    # 確率校正（calibrator がある場合）
+    if calibrator is not None:
+        boat_prob = apply_calibration(calibrator, boat_prob_raw.reshape(1, 6))[0]
+    else:
+        boat_prob = boat_prob_raw
+
+    rank_order = np.argsort(-scores)   # 0-indexed
+
+    # 120 通りの PL 確率（校正済み確率から再計算）
+    calibrated_scores = np.log(boat_prob + 1e-12)
+    probs_120 = plackett_luce_probs(calibrated_scores)
     top10_idx = np.argsort(-probs_120)[:10]
 
-    # 掛け金配分
-    bets_dict   = proportional_allocate(probs_120, budget=budget, min_prob_mul=2.0)
+    # オッズ取得（use_odds=True のとき）
+    odds_dict: dict = {}
+    if use_odds:
+        try:
+            odds_dict = scrape_odds(jcd, hd, rno, debug=debug)
+        except Exception as e:
+            print(f"[app] オッズ取得失敗: {e}")
+
+    # 掛け金配分: オッズあり → バリューベット、なし → 比例配分
+    if odds_dict:
+        bets_dict = value_bet_allocate(
+            probs_120, odds_dict, budget=budget, min_edge=min_edge
+        )
+        bet_mode = "value"
+    else:
+        bets_dict = proportional_allocate(probs_120, budget=budget, min_prob_mul=2.0)
+        bet_mode  = "proportional"
+
     total_bet   = sum(bets_dict.values())
     confidence  = float(boat_prob.max())
     conf_label  = "高" if confidence > 0.35 else "中" if confidence > 0.25 else "低"
@@ -131,24 +163,35 @@ def run_prediction(jcd: str, hd: str, rno: int,
         })
 
     # 3連単上位10
-    trifecta = [
-        {
+    trifecta = []
+    for i in range(len(top10_idx)):
+        idx   = top10_idx[i]
+        combo = COMBO_STRS[idx]
+        odds  = float(odds_dict.get(combo, 0.0))
+        ev    = probs_120[idx] * odds - 1.0 if odds > 0 else None
+        trifecta.append({
             "rank":     i + 1,
-            "combo":    COMBO_STRS[top10_idx[i]],
-            "prob_pct": round(float(probs_120[top10_idx[i]]) * 100, 2),
-        }
-        for i in range(len(top10_idx))
-    ]
+            "combo":    combo,
+            "prob_pct": round(float(probs_120[idx]) * 100, 2),
+            "odds":     round(odds, 1) if odds > 0 else None,
+            "ev_pct":   round(ev * 100, 1) if ev is not None else None,
+        })
+
+    # EV テーブル（バリューベット候補の全リスト）
+    ev_table = compute_ev_table(probs_120, odds_dict) if odds_dict else []
 
     # ベット一覧
-    bets = [
-        {
+    bets = []
+    for combo, amt in sorted(bets_dict.items(), key=lambda x: -x[1]):
+        odds = float(odds_dict.get(combo, 0.0))
+        ev   = probs_120[COMBO_STRS.index(combo)] * odds - 1.0 if odds > 0 else None
+        bets.append({
             "combo":   combo,
             "amount":  amt,
             "bar_pct": round(amt / budget * 100),
-        }
-        for combo, amt in sorted(bets_dict.items(), key=lambda x: -x[1])
-    ]
+            "odds":    round(odds, 1) if odds > 0 else None,
+            "ev_pct":  round(ev * 100, 1) if ev is not None else None,
+        })
 
     # 日付フォーマット
     date_fmt = f"{hd[:4]}年{int(hd[4:6])}月{int(hd[6:8])}日" if len(hd) == 8 else hd
@@ -174,6 +217,9 @@ def run_prediction(jcd: str, hd: str, rno: int,
         "conf_label":  conf_label,
         "top_combo":      trifecta[0]["combo"] if trifecta else "—",
         "has_beforeinfo": has_beforeinfo,
+        "has_odds":       bool(odds_dict),
+        "bet_mode":       bet_mode,
+        "ev_table":       ev_table[:20],   # EV上位20通りをテンプレートに渡す
     }
 
 
@@ -183,7 +229,7 @@ def run_prediction(jcd: str, hd: str, rno: int,
 
 @app.route("/")
 def index():
-    booster, _, _ = get_model()
+    booster, _, _, _ = get_model()
     model_ready = booster is not None
     return render_template("index.html",
                            venues=VENUES,
@@ -215,8 +261,13 @@ def predict():
 
         venue_name = dict(VENUES).get(jcd, "—")
         nichiji    = int(request.form.get("nichiji", 1))
+        use_odds   = request.form.get("use_odds", "1") != "0"
+        min_edge   = float(request.form.get("min_edge", "0.05"))
 
-        result = run_prediction(jcd, hd, rno, venue_name, nichiji, budget, debug)
+        result = run_prediction(
+            jcd, hd, rno, venue_name, nichiji, budget,
+            use_odds=use_odds, min_edge=min_edge, debug=debug
+        )
         return render_template("result.html", r=result)
 
     except Exception as exc:

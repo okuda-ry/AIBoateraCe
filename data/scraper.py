@@ -73,6 +73,7 @@ TODAY_SLOTS = [f"{i}-{j}" for i in range(1, 7) for j in range(1, 3)]
 BOAT_NUM_FEATS = [
     "年齢", "体重", "全国勝率", "全国2連対率",
     "当地勝率", "当地2連対率", "モーター2連対率", "ボート2連対率", "早見",
+    "今節平均ST",  # 今節の平均スタートタイム (小さいほど早い = 有利)
 ]
 BOAT_TODAY_FEATS = [f"今節成績_{s}" for s in TODAY_SLOTS]
 
@@ -252,17 +253,19 @@ def _extract_player_cells(cells: list[str], lane: int) -> dict:
 # 直前情報ページ (beforeinfo) パーサ
 # -------------------------------------------------------
 
-def _parse_beforeinfo(soup: BeautifulSoup) -> tuple[dict, dict]:
+def _parse_beforeinfo(soup: BeautifulSoup) -> tuple[dict, dict, dict]:
     """
-    直前情報ページから 展示タイム と 気象情報 を抽出する。
+    直前情報ページから 展示タイム・スタートタイム・気象情報 を抽出する。
 
     Returns
     -------
     tenji_times : {枠番(int): 展示タイム(float)}
     weather     : {天候, 風向, 風速, 波高, 距離} dict
+    st_times    : {枠番(int): 平均ST(float)}  今節のST平均（取得できない場合は空）
     """
     tenji_times = {}
     weather = {}
+    st_times = {}
 
     # --------- 展示タイム ---------
     # テキストパターン "6.88" が1行に並ぶテーブルを探す
@@ -295,9 +298,36 @@ def _parse_beforeinfo(soup: BeautifulSoup) -> tuple[dict, dict]:
             lane_s, t_s = m.group(1), m.group(2)
             tenji_times[int(lane_s)] = float(t_s)
 
-    # --------- 気象情報 ---------
+    # --------- スタートタイム（ST）---------
+    # 直前情報ページには今節のST一覧が掲載されている場合がある
+    # 形式: "0.00" ～ "0.39"（正常範囲）、"F" = フライング
+    # ページ全体からST値を艇番と対応付けて収集する
     text = soup.get_text()
 
+    # STパターン: "0.0x" ～ "0.3x" の小数（着順の小数とは範囲が異なる）
+    st_pattern = re.compile(r'\b(0\.\d{2})\b')
+    # 艇番パターンとST値を行ごとに走査して対応付ける
+    st_lane_buf: dict[int, list[float]] = {}
+    current_lane = 0
+    for line in text.splitlines():
+        line = line.strip()
+        if re.match(r'^[1-6]$', line):
+            current_lane = int(line)
+        elif current_lane > 0:
+            for m_st in st_pattern.finditer(line):
+                st_val = float(m_st.group(1))
+                if 0.0 <= st_val <= 0.50:   # STの現実的な範囲
+                    st_lane_buf.setdefault(current_lane, []).append(st_val)
+            # 次の艇番が来るまでリセットしない
+            if re.match(r'^[1-6]$', line):
+                current_lane = int(line)
+
+    # 艇ごとのST平均を計算
+    for lane, vals in st_lane_buf.items():
+        if vals:
+            st_times[lane] = round(float(np.mean(vals)), 3)
+
+    # --------- 気象情報 ---------
     # 天候
     for pat, label in [("晴", "晴"), ("曇", "曇"), ("雨", "雨"), ("雪", "雪")]:
         if pat in text:
@@ -326,7 +356,7 @@ def _parse_beforeinfo(soup: BeautifulSoup) -> tuple[dict, dict]:
     m = re.search(r"(\d{4})\s*m", text)
     weather["距離"] = float(m.group(1)) if m else 1800.0
 
-    return tenji_times, weather
+    return tenji_times, weather, st_times
 
 
 # -------------------------------------------------------
@@ -378,23 +408,27 @@ def scrape_race(url: str,
     boats = _parse_racelist(soup_list)
 
     # 直前情報は任意（スタート展示前は取得できないため失敗しても続行）
-    tenji_times, weather = {}, {}
+    tenji_times, weather, st_times = {}, {}, {}
     try:
         print(f"[scraper] 直前情報取得中: {beforeinfo_url}")
         soup_before  = _fetch(beforeinfo_url)
-        tenji_times, weather = _parse_beforeinfo(soup_before)
+        tenji_times, weather, st_times = _parse_beforeinfo(soup_before)
         if not tenji_times:
             print("[scraper] 展示タイム未公開（スタート展示前）— 出走表データのみで予測します")
         else:
             print(f"[scraper] 展示タイム取得: {tenji_times}")
+        if st_times:
+            print(f"[scraper] 今節ST取得: {st_times}")
     except Exception as e:
         print(f"[scraper] 直前情報を取得できませんでした（{e}）— 出走表データのみで予測します")
 
-    # 展示タイムを各艇に統合（beforeinfo の値で上書き）
+    # 展示タイムと今節STを各艇に統合
     for b in boats:
         lane = b["枠番"]
         if lane in tenji_times:
             b["早見"] = tenji_times[lane]
+        # 今節平均ST（取得できなかった場合は 0.18 = 全国平均 を代入）
+        b["今節平均ST"] = st_times.get(lane, 0.18)
 
     # -------- 艇特徴量 (1, 6, 23) --------
     boat_feat_matrix = []
@@ -449,3 +483,149 @@ def scrape_race(url: str,
           f"直前情報: {'あり' if has_beforeinfo else 'なし'}")
 
     return boat_features, race_features, player_names, weather, has_beforeinfo
+
+
+# -------------------------------------------------------
+# 3連単オッズ取得
+# -------------------------------------------------------
+
+# ページ上に表示される3連単オッズの順序
+#
+# boatrace.jp の odds3t テーブルは 6セクション（1着=1..6）が横並びの
+# 1枚のHTMLテーブル。DOMを左→右→次行と読むと「行優先（row-major）」になる:
+#
+#   行p / 列first → combo
+#   行0: [1-2-3, 2-1-3, 3-1-2, 4-1-2, 5-1-2, 6-1-2]
+#   行1: [1-2-4, 2-1-4, 3-1-4, 4-1-3, 5-1-3, 6-1-3]
+#   ...
+#   行6: [1-3-5, ...]   ← flat index 36
+#
+# 各1着セクション内の順序:
+#   2着は昇順(1着を除く), 3着は昇順(1着・2着を除く)
+#   → セクション内位置 p: second = seconds[p//4], third = thirds[p%4]
+#
+def _build_odds3t_combo_order() -> list[str]:
+    order = []
+    for p in range(20):          # セクション内の位置 0..19
+        for first in range(1, 7):    # 1着 (=HTMLの列)
+            seconds = [x for x in range(1, 7) if x != first]
+            second  = seconds[p // 4]
+            thirds  = [x for x in range(1, 7) if x != first and x != second]
+            third   = thirds[p % 4]
+            order.append(f"{first}-{second}-{third}")
+    return order
+
+_ODDS3T_COMBO_ORDER: list[str] = _build_odds3t_combo_order()
+# 検証: 120通りの全組み合わせを網羅しているはず
+assert len(_ODDS3T_COMBO_ORDER) == 120
+assert len(set(_ODDS3T_COMBO_ORDER)) == 120, "重複あり — マッピング定義を再確認してください"
+
+
+def _is_odds_value(text: str) -> bool:
+    """
+    テキストがオッズ値かどうかを判定する。
+
+    boatrace.jp のオッズ表記:
+      - 通常: "14.5" (小数点1桁)
+      - 高配当: "1084" や "1084.0" (小数点なし or あり)
+    艇番ラベル (1〜6) は除外するため val >= 6.5 でフィルタする。
+    """
+    # 小数点1桁 または 整数（2〜4桁）
+    if not (re.match(r'^\d{1,4}\.\d$', text) or re.match(r'^\d{2,4}$', text)):
+        return False
+    val = float(text)
+    # 6.5 未満は艇番・ページ番号等の可能性が高い
+    return 6.5 <= val <= 9999.9
+
+
+def scrape_odds(jcd: str, hd: str, rno: int, debug: bool = False) -> dict:
+    """
+    boatrace.jp の3連単オッズページを取得する。
+
+    テーブル構造:
+      列  = 1着 (1〜6)
+      行グループ = 2着 (5グループ × 4行 = 20行)
+      セル値 = 3着オッズ
+
+    DOM読み取り順（行優先）:
+      行0: [1-2-3, 2-1-3, 3-1-2, 4-1-2, 5-1-2, 6-1-2]
+      行1: [1-2-4, 2-1-4, 3-1-4, 4-1-3, 5-1-3, 6-1-3]
+      ...
+
+    Returns
+    -------
+    odds_dict : {combo_str: float}  例: {"1-2-3": 18.5}
+                取得できない場合は空 dict（受付前/構造変更）。
+    """
+    url = (f"https://www.boatrace.jp/owpc/pc/race/odds3t"
+           f"?jcd={jcd}&hd={hd}&rno={rno:02d}")
+
+    try:
+        soup = _fetch(url)
+    except Exception as e:
+        print(f"[scraper] オッズ取得失敗: {e}")
+        return {}
+
+    if debug:
+        print(f"[DEBUG] odds3t URL: {url}")
+        print(soup.get_text()[:3000])
+
+    odds_values: list[float] = []
+
+    # ─── 方法1: 各行に数値が 6つ並ぶ行を探す ─────────────────────
+    # 3連単オッズ表の各HTMLtr は 6つの1着列から1つずつ値を持つ。
+    # 行ごとに数値が 6つ（または5〜6つ）であれば、オッズ行と判断する。
+    for table in soup.find_all("table"):
+        candidate: list[float] = []
+        for tr in table.find_all("tr"):
+            row_nums = [
+                float(td.get_text(strip=True))
+                for td in tr.find_all("td")
+                if _is_odds_value(td.get_text(strip=True))
+            ]
+            # オッズ行は 6列 (まれに colspan 等で 5)
+            if 5 <= len(row_nums) <= 6:
+                candidate.extend(row_nums)
+
+        if len(candidate) >= 100:
+            odds_values = candidate
+            if debug:
+                print(f"[DEBUG] 方法1でオッズ候補 {len(odds_values)} 個取得")
+            break
+
+    # ─── 方法2: td/span フラットスキャン（方法1で不足時）──────────
+    if len(odds_values) < 60:
+        for tag in soup.find_all(["td", "span"]):
+            t = tag.get_text(strip=True)
+            if _is_odds_value(t):
+                odds_values.append(float(t))
+        if debug:
+            print(f"[DEBUG] 方法2でオッズ候補 {len(odds_values)} 個取得")
+
+    # ─── combo_order と対応付け ──────────────────────────────────
+    odds_dict: dict[str, float] = {}
+    if len(odds_values) >= 120:
+        odds_dict = {
+            combo: odds
+            for combo, odds in zip(_ODDS3T_COMBO_ORDER, odds_values[:120])
+        }
+    elif len(odds_values) >= 100:
+        odds_dict = {
+            combo: odds
+            for combo, odds in zip(_ODDS3T_COMBO_ORDER, odds_values)
+        }
+
+    if odds_dict:
+        vals = list(odds_dict.values())
+        # デバッグ: 検証用に代表的な組み合わせを表示
+        samples = ["1-2-3", "1-3-5", "3-1-2", "6-5-4"]
+        sample_str = "  ".join(
+            f"{c}={odds_dict[c]:.1f}" for c in samples if c in odds_dict
+        )
+        print(f"[scraper] 3連単オッズ取得: {len(odds_dict)}通り  "
+              f"min={min(vals):.1f}  max={max(vals):.1f}  "
+              f"(検証: {sample_str})")
+    else:
+        print("[scraper] 3連単オッズ未取得（締切前/受付前/構造変更の可能性）")
+
+    return odds_dict
