@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.heiwajima.gr.jp)",
+      "WebFetch(domain:www.boatrace.jp)",
+      "Bash(pip install:*)",
+      "Bash(python -c \"from app import app; print\\(''OK''\\)\")",
+      "Bash(python -c \"from app import app; print\\(''''OK''''\\)\")",
+      "Bash(venvScriptspip install:*)",
+      "Bash(\"venv/Scripts/pip\" install:*)",
+      "Bash(\"venv/Scripts/python\" -c \"from bs4 import BeautifulSoup; print\\(''OK''\\)\")",
+      "Bash(\"venv/Scripts/python\" app.py)"
+    ]
+  }
+}

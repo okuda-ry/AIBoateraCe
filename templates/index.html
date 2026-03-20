@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}競艇 AI 予測 — レース選択{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7 col-md-9">
+
+    <!-- ヒーロー -->
+    <div class="hero-card mb-4 text-center">
+      <div class="hero-icon">🚤</div>
+      <h1 class="hero-title">競艇 AI 予測</h1>
+      <p class="hero-sub">LightGBM LambdaRank × Kelly 規準による 3連単予測</p>
+      {% if not model_ready %}
+        <div class="alert alert-warning mt-3 mb-0 text-start">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i>
+          モデルが未学習です。先に <code>python train.py lgbm</code> を実行してください。
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- 入力フォーム -->
+    <div class="card-dark p-4">
+      <!-- タブ切り替え -->
+      <ul class="nav nav-tabs-custom mb-4" id="inputTab" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-tab-btn active" id="url-tab" data-bs-toggle="tab"
+                  data-bs-target="#url-pane" type="button" role="tab">
+            <i class="bi bi-link-45deg me-1"></i>URL 入力
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-tab-btn" id="manual-tab" data-bs-toggle="tab"
+                  data-bs-target="#manual-pane" type="button" role="tab">
+            <i class="bi bi-sliders me-1"></i>手動指定
+          </button>
+        </li>
+      </ul>
+
+      <form action="{{ url_for('predict') }}" method="POST" id="predict-form">
+
+        <div class="tab-content">
+
+          <!-- URL 入力パネル -->
+          <div class="tab-pane fade show active" id="url-pane" role="tabpanel">
+            <input type="hidden" name="mode" value="url" id="mode-url">
+            <div class="mb-3">
+              <label class="form-label-custom">出走表 URL</label>
+              <input type="url" class="form-control-custom" name="url"
+                     placeholder="https://www.heiwajima.gr.jp/... または https://www.boatrace.jp/owpc/pc/race/racelist?jcd=04&hd=20260320&rno=1"
+                     {% if not model_ready %}disabled{% endif %}>
+              <div class="form-hint mt-1">
+                平和島・戸田など各会場サイトの URL、または boatrace.jp の出走表 URL をそのままペーストできます。
+              </div>
+            </div>
+          </div>
+
+          <!-- 手動指定パネル -->
+          <div class="tab-pane fade" id="manual-pane" role="tabpanel">
+            <input type="hidden" name="mode" value="manual" id="mode-manual">
+            <div class="row g-3">
+              <div class="col-sm-6">
+                <label class="form-label-custom">会場</label>
+                <select class="form-control-custom" name="venue"
+                        {% if not model_ready %}disabled{% endif %}>
+                  {% for code, name in venues %}
+                    <option value="{{ code }}" {% if code == "04" %}selected{% endif %}>
+                      {{ name }}
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label-custom">日付</label>
+                <input type="date" class="form-control-custom" name="date"
+                       value="{{ today }}"
+                       {% if not model_ready %}disabled{% endif %}>
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label-custom">レース番号</label>
+                <select class="form-control-custom" name="race"
+                        {% if not model_ready %}disabled{% endif %}>
+                  {% for n in range(1, 13) %}
+                    <option value="{{ n }}">{{ n }}R</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label-custom">日次（何日目）</label>
+                <select class="form-control-custom" name="nichiji"
+                        {% if not model_ready %}disabled{% endif %}>
+                  {% for n in range(1, 7) %}
+                    <option value="{{ n }}">{{ n }}日目</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 共通オプション -->
+        <hr class="divider my-4">
+        <div class="row g-3 align-items-end">
+          <div class="col-sm-5">
+            <label class="form-label-custom">
+              <i class="bi bi-cash-coin me-1"></i>1レース予算（円）
+            </label>
+            <div class="input-group-custom">
+              <input type="number" class="form-control-custom" name="budget"
+                     value="1000" min="100" step="100"
+                     {% if not model_ready %}disabled{% endif %}>
+              <span class="input-suffix">円</span>
+            </div>
+          </div>
+          <div class="col-sm-4">
+            <label class="form-label-custom">オプション</label>
+            <div class="form-check-custom">
+              <input class="form-check-input" type="checkbox" name="debug" value="1" id="debug-check">
+              <label class="form-check-label" for="debug-check">デバッグ出力</label>
+            </div>
+          </div>
+          <div class="col-sm-3 text-end">
+            <button type="submit" class="btn-predict w-100"
+                    {% if not model_ready %}disabled{% endif %}>
+              <i class="bi bi-lightning-fill me-1"></i>予測する
+            </button>
+          </div>
+        </div>
+
+      </form>
+    </div>
+
+    <!-- 使い方 -->
+    <div class="card-dark p-4 mt-4">
+      <h6 class="section-title mb-3"><i class="bi bi-info-circle me-2"></i>使い方</h6>
+      <ol class="how-to-list">
+        <li>先に <code>python train.py lgbm</code> でモデルを学習する</li>
+        <li>レースが始まる前（スタート展示後）に URL またはレース情報を入力</li>
+        <li>予測ボタンを押すと出走表・直前情報を自動取得して予測</li>
+        <li>表示された推奨ベットを参考に購入（自己責任）</li>
+      </ol>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // タブ切り替え時に hidden input の mode を変更
+  document.getElementById('url-tab').addEventListener('shown.bs.tab', () => {
+    document.querySelector('[name=mode]').value = 'url';
+  });
+  document.getElementById('manual-tab').addEventListener('shown.bs.tab', () => {
+    document.querySelector('[name=mode]').value = 'manual';
+  });
+
+  // 送信中スピナー
+  document.getElementById('predict-form').addEventListener('submit', function () {
+    const btn = this.querySelector('.btn-predict');
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>取得中...';
+    btn.disabled = true;
+  });
+</script>
+{% endblock %}

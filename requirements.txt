@@ -1,0 +1,22 @@
+# Data collection
+requests==2.32.3
+lhafile==0.3.1
+beautifulsoup4>=4.12
+
+# Data processing
+numpy==2.2.4
+pandas==2.2.3
+
+# Machine learning
+scikit-learn==1.8.0
+tensorflow>=2.15
+lightgbm>=4.0
+flask>=3.0
+
+# Visualization
+matplotlib>=3.7
+
+# Optional (for notebooks)
+# seaborn>=0.12
+# optuna>=3.0
+# jupyter>=1.0
