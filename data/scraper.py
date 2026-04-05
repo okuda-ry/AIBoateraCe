@@ -584,26 +584,53 @@ def scrape_odds(jcd: str, hd: str, rno: int, debug: bool = False) -> dict:
         print(soup.get_text()[:3000])
 
     # ─── 方法1: テーブルの行構造を利用 ───────────────────────────
-    # オッズテーブルの各 tr は 6列（1着ごとに1セル）
-    # 1行あたりちょうど6値が揃う行のみをオッズ行として採用する。
-    # 揃わない行（欠損・更新中セルあり）は None プレースホルダーで補完する。
+    #
+    # boatrace.jp の odds3t テーブルの各 <tr> は以下の構成:
+    #   <td>3</td>       ← 3着ラベル（単一桁 1〜6）
+    #   <td>14.5</td>    ← 1着=1 のオッズ
+    #   <td>40.2</td>    ← 1着=2 のオッズ
+    #   <td>164.5</td>   ← 1着=3 のオッズ
+    #   <td>28.8</td>    ← 1着=4 のオッズ
+    #   <td>798.4</td>   ← 1着=5 のオッズ
+    #   <td>136.0</td>   ← 1着=6 のオッズ
+    #
+    # 行ラベル（単一桁 "1"〜"6"）を除外してから、残り6セルをオッズとして取得する。
+    # 欠損セル（"---" 等）は None プレースホルダーとして位置を保持する。
+    # → 欠損があっても以降のコンボの位置がずれない。
+    #
+    _LABEL_PAT = re.compile(r'^[1-6]$')
+
     odds_values: list[float | None] = []
     found_by_method1 = False
 
     for table in soup.find_all("table"):
         candidate: list[float | None] = []
         valid_rows = 0
+
         for tr in table.find_all("tr"):
             tds = tr.find_all("td")
-            if len(tds) < 5:
+            # 行ラベル（単一桁）を除外した td のみ対象にする
+            odds_tds = [
+                td for td in tds
+                if not _LABEL_PAT.match(td.get_text(strip=True))
+            ]
+            if len(odds_tds) < 5:
                 continue
-            row_vals = [_parse_odds_text(td.get_text(strip=True)) for td in tds]
-            # None でないものが 4つ以上あればオッズ行と判断
-            non_null = [v for v in row_vals if v is not None]
-            if len(non_null) >= 4:
-                # 6列になるよう末尾を None で埋める
-                row_6 = (row_vals + [None] * 6)[:6]
-                candidate.extend(row_6)
+
+            # 各セルをオッズ値または None（欠損）にパース
+            # "---" や空白は None → 位置を保持したまま欠損として扱う
+            row_vals: list[float | None] = [
+                _parse_odds_text(td.get_text(strip=True))
+                for td in odds_tds[:6]   # 最大6セル（1着6列分）
+            ]
+
+            # 6列に満たない場合は末尾を None で補完して位置を揃える
+            while len(row_vals) < 6:
+                row_vals.append(None)
+
+            non_null = sum(1 for v in row_vals if v is not None)
+            if non_null >= 4:   # 4値以上あればオッズ行と判断
+                candidate.extend(row_vals)
                 valid_rows += 1
 
         if valid_rows >= 18:   # 20行のうち18行以上取れていれば採用
@@ -611,22 +638,32 @@ def scrape_odds(jcd: str, hd: str, rno: int, debug: bool = False) -> dict:
             found_by_method1 = True
             if debug:
                 non_null_count = sum(1 for v in odds_values if v is not None)
-                print(f"[DEBUG] 方法1: {valid_rows}行取得  値={non_null_count}個")
+                print(f"[DEBUG] 方法1: {valid_rows}行  有効値={non_null_count}個  "
+                      f"総セル={len(odds_values)}個")
             break
 
-    # ─── 方法2: セル単位フラットスキャン（方法1で不足時）──────────
+    # ─── 方法2: 行構造に頼らず全セルをスキャン（方法1失敗時のみ）────
+    # 方法2は位置情報が失われるため、120通り揃った場合のみ採用する。
     if not found_by_method1:
         flat: list[float] = []
         for tag in soup.find_all(["td", "span"]):
-            v = _parse_odds_text(tag.get_text(strip=True))
+            text = tag.get_text(strip=True)
+            if _LABEL_PAT.match(text):
+                continue   # 艇番ラベルを除外
+            v = _parse_odds_text(text)
             if v is not None:
                 flat.append(v)
-        odds_values = flat  # type: ignore
         if debug:
-            print(f"[DEBUG] 方法2: {len(odds_values)}個取得")
+            print(f"[DEBUG] 方法2: {len(flat)}個取得")
+        # 方法2は欠損の位置が特定できないため、120通り揃っている場合のみ使用
+        if len(flat) >= 120:
+            odds_values = flat[:120]   # type: ignore
+        else:
+            if debug:
+                print(f"[DEBUG] 方法2: 120通り未満のため不採用 ({len(flat)}通り)")
 
     # ─── combo_order と対応付け ──────────────────────────────────
-    # None（欠損）はスキップして有効な値のみをマッピング
+    # None（欠損）はスキップ。位置は保持されているので他のコンボはずれない。
     odds_dict: dict[str, float] = {}
     valid_count = 0
     for combo, val in zip(_ODDS3T_COMBO_ORDER, odds_values):
