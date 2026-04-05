@@ -521,21 +521,34 @@ assert len(_ODDS3T_COMBO_ORDER) == 120
 assert len(set(_ODDS3T_COMBO_ORDER)) == 120, "重複あり — マッピング定義を再確認してください"
 
 
-def _is_odds_value(text: str) -> bool:
+def _parse_odds_text(text: str) -> float | None:
     """
-    テキストがオッズ値かどうかを判定する。
+    テキストをオッズ値としてパースする。
 
-    boatrace.jp のオッズ表記:
+    対応表記:
       - 通常: "14.5" (小数点1桁)
-      - 高配当: "1084" や "1084.0" (小数点なし or あり)
-    艇番ラベル (1〜6) は除外するため val >= 6.5 でフィルタする。
+      - 低配当: "1.5" ～ "6.4" (鉄板組み合わせ)
+      - 高配当: "1084" (整数表記)
+      - 更新中/未確定: "---" → None
+    除外:
+      - 艇番そのもの (1〜6 の整数1桁)
+      - ページ番号・年号等 (5桁以上)
+
+    Returns
+    -------
+    float if valid odds, None otherwise
     """
-    # 小数点1桁 または 整数（2〜4桁）
-    if not (re.match(r'^\d{1,4}\.\d$', text) or re.match(r'^\d{2,4}$', text)):
-        return False
-    val = float(text)
-    # 6.5 未満は艇番・ページ番号等の可能性が高い
-    return 6.5 <= val <= 9999.9
+    text = text.strip()
+    # 小数点1桁 (例: 14.5 / 1.5)
+    if re.match(r'^\d{1,4}\.\d$', text):
+        val = float(text)
+        # 1.0 未満はオッズとして存在しない
+        return val if val >= 1.0 else None
+    # 整数2〜4桁 (高配当の整数表記 例: 1084)
+    if re.match(r'^\d{2,4}$', text):
+        val = float(text)
+        return val if val >= 10 else None  # 10未満の整数は艇番等と区別できないので除外
+    return None
 
 
 def scrape_odds(jcd: str, hd: str, rno: int, debug: bool = False) -> dict:
@@ -570,59 +583,66 @@ def scrape_odds(jcd: str, hd: str, rno: int, debug: bool = False) -> dict:
         print(f"[DEBUG] odds3t URL: {url}")
         print(soup.get_text()[:3000])
 
-    odds_values: list[float] = []
+    # ─── 方法1: テーブルの行構造を利用 ───────────────────────────
+    # オッズテーブルの各 tr は 6列（1着ごとに1セル）
+    # 1行あたりちょうど6値が揃う行のみをオッズ行として採用する。
+    # 揃わない行（欠損・更新中セルあり）は None プレースホルダーで補完する。
+    odds_values: list[float | None] = []
+    found_by_method1 = False
 
-    # ─── 方法1: 各行に数値が 6つ並ぶ行を探す ─────────────────────
-    # 3連単オッズ表の各HTMLtr は 6つの1着列から1つずつ値を持つ。
-    # 行ごとに数値が 6つ（または5〜6つ）であれば、オッズ行と判断する。
     for table in soup.find_all("table"):
-        candidate: list[float] = []
+        candidate: list[float | None] = []
+        valid_rows = 0
         for tr in table.find_all("tr"):
-            row_nums = [
-                float(td.get_text(strip=True))
-                for td in tr.find_all("td")
-                if _is_odds_value(td.get_text(strip=True))
-            ]
-            # オッズ行は 6列 (まれに colspan 等で 5)
-            if 5 <= len(row_nums) <= 6:
-                candidate.extend(row_nums)
+            tds = tr.find_all("td")
+            if len(tds) < 5:
+                continue
+            row_vals = [_parse_odds_text(td.get_text(strip=True)) for td in tds]
+            # None でないものが 4つ以上あればオッズ行と判断
+            non_null = [v for v in row_vals if v is not None]
+            if len(non_null) >= 4:
+                # 6列になるよう末尾を None で埋める
+                row_6 = (row_vals + [None] * 6)[:6]
+                candidate.extend(row_6)
+                valid_rows += 1
 
-        if len(candidate) >= 100:
+        if valid_rows >= 18:   # 20行のうち18行以上取れていれば採用
             odds_values = candidate
+            found_by_method1 = True
             if debug:
-                print(f"[DEBUG] 方法1でオッズ候補 {len(odds_values)} 個取得")
+                non_null_count = sum(1 for v in odds_values if v is not None)
+                print(f"[DEBUG] 方法1: {valid_rows}行取得  値={non_null_count}個")
             break
 
-    # ─── 方法2: td/span フラットスキャン（方法1で不足時）──────────
-    if len(odds_values) < 60:
+    # ─── 方法2: セル単位フラットスキャン（方法1で不足時）──────────
+    if not found_by_method1:
+        flat: list[float] = []
         for tag in soup.find_all(["td", "span"]):
-            t = tag.get_text(strip=True)
-            if _is_odds_value(t):
-                odds_values.append(float(t))
+            v = _parse_odds_text(tag.get_text(strip=True))
+            if v is not None:
+                flat.append(v)
+        odds_values = flat  # type: ignore
         if debug:
-            print(f"[DEBUG] 方法2でオッズ候補 {len(odds_values)} 個取得")
+            print(f"[DEBUG] 方法2: {len(odds_values)}個取得")
 
     # ─── combo_order と対応付け ──────────────────────────────────
+    # None（欠損）はスキップして有効な値のみをマッピング
     odds_dict: dict[str, float] = {}
-    if len(odds_values) >= 120:
-        odds_dict = {
-            combo: odds
-            for combo, odds in zip(_ODDS3T_COMBO_ORDER, odds_values[:120])
-        }
-    elif len(odds_values) >= 100:
-        odds_dict = {
-            combo: odds
-            for combo, odds in zip(_ODDS3T_COMBO_ORDER, odds_values)
-        }
+    valid_count = 0
+    for combo, val in zip(_ODDS3T_COMBO_ORDER, odds_values):
+        if val is not None:
+            odds_dict[combo] = val
+            valid_count += 1
 
     if odds_dict:
         vals = list(odds_dict.values())
-        # デバッグ: 検証用に代表的な組み合わせを表示
         samples = ["1-2-3", "1-3-5", "3-1-2", "6-5-4"]
         sample_str = "  ".join(
             f"{c}={odds_dict[c]:.1f}" for c in samples if c in odds_dict
         )
-        print(f"[scraper] 3連単オッズ取得: {len(odds_dict)}通り  "
+        missing = 120 - valid_count
+        missing_str = f"  欠損{missing}通り" if missing > 0 else ""
+        print(f"[scraper] 3連単オッズ取得: {valid_count}通り{missing_str}  "
               f"min={min(vals):.1f}  max={max(vals):.1f}  "
               f"(検証: {sample_str})")
     else:
