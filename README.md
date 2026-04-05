@@ -30,6 +30,7 @@ AiBoateraCe/
 ├── train.py                # 学習エントリーポイント
 ├── predict.py              # CLI 予測スクリプト
 ├── run_auto.py             # 自動モニタリング起動スクリプト
+├── requirements.txt
 ├── .env                    # LINE 認証情報（git 管理外・要作成）
 ├── .env.example            # .env のテンプレート
 │
@@ -38,7 +39,7 @@ AiBoateraCe/
 │   ├── recorder.py         # SQLite による予測・結果・損益の記録
 │   └── notifier.py         # LINE Messaging API 通知
 │
-├── data/
+├── data/                   # データパイプライン
 │   ├── download.py         # LZH ダウンロード
 │   ├── extract.py          # LZH → TXT 解凍
 │   ├── parse.py            # TXT → CSV 変換
@@ -46,17 +47,17 @@ AiBoateraCe/
 │   ├── scraper.py          # boatrace.jp スクレイピング（スケジュール・オッズ・結果含む）
 │   └── auto.db             # 損益記録 DB（自動生成・git 管理外）
 │
-├── models/
+├── models/                 # 機械学習モデル
 │   ├── lgbm_ranking.py     # LightGBM LambdaRank（推奨）+ Optuna チューニング
 │   ├── calibration.py      # 確率校正（Isotonic Regression）
+│   ├── kelly_betting.py    # 掛け金最適化（バリューベット・Kelly・比例配分）
 │   ├── ranking.py          # Self-Attention ランキングネット（TensorFlow）
 │   ├── baseline.py         # 単勝ベースライン（TensorFlow）
-│   ├── kelly_betting.py    # 掛け金最適化（バリューベット・Kelly・比例配分）
-│   └── saved/              # 学習済みモデル（train.py 実行後に生成）
+│   └── saved/              # 学習済みモデル（train.py 実行後に生成・git 管理外）
 │       ├── lgbm_booster.txt
 │       ├── scalers.pkl
 │       ├── race_columns.pkl
-│       └── calibrator.pkl  # 確率校正器
+│       └── calibrator.pkl
 │
 ├── templates/              # Jinja2 テンプレート
 │   ├── base.html
@@ -66,8 +67,14 @@ AiBoateraCe/
 ├── static/css/
 │   └── style.css
 │
-├── requirements.txt
-└── downloads/              # データファイル（.gitignore 対象）
+├── notebooks/              # 分析用 Jupyter Notebook
+│   └── dataframe.ipynb
+│
+├── docs/                   # 設計・戦略ドキュメント
+│   ├── DESIGN.md           # 自動売買システム設計書
+│   └── STRATEGY.md         # 収益化戦略書
+│
+└── downloads/              # データファイル（git 管理外）
     ├── racelists/
     │   ├── lzh/
     │   ├── txt/
