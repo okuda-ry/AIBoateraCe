@@ -19,6 +19,9 @@ matplotlib>=3.7
 # Hyperparameter optimization
 optuna>=3.0
 
+# Auto monitoring / scheduling
+APScheduler>=3.10
+
 # Optional (for notebooks)
 # seaborn>=0.12
 # jupyter>=1.0

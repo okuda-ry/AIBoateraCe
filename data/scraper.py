@@ -629,3 +629,177 @@ def scrape_odds(jcd: str, hd: str, rno: int, debug: bool = False) -> dict:
         print("[scraper] 3連単オッズ未取得（締切前/受付前/構造変更の可能性）")
 
     return odds_dict
+
+
+# -------------------------------------------------------
+# レーススケジュール取得
+# -------------------------------------------------------
+
+def scrape_schedule(hd: str = None) -> list[dict]:
+    """
+    指定日の全レーススケジュールを取得する。
+
+    Parameters
+    ----------
+    hd : str  YYYYMMDD 形式。None の場合は今日。
+
+    Returns
+    -------
+    races : [
+        {"jcd": "04", "venue": "平和島", "hd": "20260405",
+         "rno": 1, "stime": "10:00", "race_id": "04-20260405-01"},
+        ...
+    ]
+    """
+    if hd is None:
+        hd = date.today().strftime("%Y%m%d")
+
+    index_url = f"https://www.boatrace.jp/owpc/pc/race/index?hd={hd}"
+    try:
+        soup = _fetch(index_url)
+    except Exception as e:
+        print(f"[scraper] スケジュール取得失敗: {e}")
+        return []
+
+    # 開催中の jcd を href から収集
+    open_jcds: set[str] = set()
+    for a in soup.find_all("a", href=True):
+        m = re.search(r'[?&]jcd=(\d{2})', str(a["href"]))
+        if m:
+            open_jcds.add(m.group(1))
+
+    # jcd → 日本語会場名マッピング（英字キーを除外）
+    jcd_to_venue = {
+        jcd: name
+        for name, jcd in VENUE_JCD.items()
+        if re.search(r'[\u3000-\u9fff]', name)   # 日本語文字を含む名前のみ
+    }
+
+    races: list[dict] = []
+    for jcd in sorted(open_jcds):
+        venue = jcd_to_venue.get(jcd, jcd)
+        try:
+            prog_url = (f"https://www.boatrace.jp/owpc/pc/race/raceindex"
+                        f"?jcd={jcd}&hd={hd}")
+            psoup = _fetch(prog_url)
+            race_times = _parse_race_times(psoup)
+            for rno, stime in race_times.items():
+                races.append({
+                    "jcd":     jcd,
+                    "venue":   venue,
+                    "hd":      hd,
+                    "rno":     rno,
+                    "stime":   stime,
+                    "race_id": f"{jcd}-{hd}-{rno:02d}",
+                })
+        except Exception as e:
+            print(f"[scraper] {venue}({jcd}) スケジュール取得失敗: {e}")
+
+    races.sort(key=lambda r: (r["stime"], r["jcd"], r["rno"]))
+    print(f"[scraper] スケジュール取得完了: {len(races)} レース / {len(open_jcds)} 場")
+    return races
+
+
+def _parse_race_times(soup: BeautifulSoup) -> dict[int, str]:
+    """
+    番組ページからレース番号 → 発走予定時刻の辞書を返す。
+
+    Returns
+    -------
+    {1: "10:00", 2: "10:30", ...}
+    """
+    times: dict[int, str] = {}
+    text = soup.get_text()
+
+    # パターン1: "1R 10:00" / "1レース 10:00"
+    for m in re.finditer(r'(\d{1,2})\s*[Rｒ]\s*(\d{1,2}:\d{2})', text):
+        rno = int(m.group(1))
+        t   = m.group(2)
+        if 1 <= rno <= 12:
+            times.setdefault(rno, t)
+
+    # パターン2: テーブルから HH:MM を順番に抽出（上記で失敗した場合）
+    if not times:
+        time_cells = []
+        for tag in soup.find_all(["td", "th", "span", "p", "div"]):
+            raw = tag.get_text(strip=True)
+            if re.match(r'^\d{1,2}:\d{2}$', raw):
+                # ボートレースの発走時刻は 08:00〜21:00 程度
+                h = int(raw.split(":")[0])
+                if 8 <= h <= 21:
+                    time_cells.append(raw)
+        # 重複を除いて順番に割り当て
+        seen: set[str] = set()
+        rno = 1
+        for t in time_cells:
+            if t not in seen:
+                times[rno] = t
+                seen.add(t)
+                rno += 1
+            if rno > 12:
+                break
+
+    return times
+
+
+# -------------------------------------------------------
+# レース結果取得
+# -------------------------------------------------------
+
+def scrape_result(jcd: str, hd: str, rno: int) -> dict:
+    """
+    レース結果（3連単の組番と払戻金）を取得する。
+
+    Returns
+    -------
+    {
+        "combo":    "1-3-5",   # 3連単組番（未確定時は ""）
+        "payout":   6740,      # 払戻金 (100円賭けた場合の払戻額)
+        "finished": True,      # 結果確定フラグ
+    }
+    """
+    url = (f"https://www.boatrace.jp/owpc/pc/race/raceresult"
+           f"?jcd={jcd}&hd={hd}&rno={rno:02d}")
+    try:
+        soup = _fetch(url)
+    except Exception as e:
+        print(f"[scraper] 結果取得失敗: {e}")
+        return {"combo": "", "payout": 0, "finished": False}
+
+    text = soup.get_text()
+
+    # ── 3連単組番を探す ──────────────────────────────────────
+    # "1-3-5" 形式・全艇番が異なるものを採用
+    combo = ""
+    for m in re.finditer(r'\b([1-6])-([1-6])-([1-6])\b', text):
+        a, b, c = m.group(1), m.group(2), m.group(3)
+        if len({a, b, c}) == 3:
+            combo = f"{a}-{b}-{c}"
+            break
+
+    # ── 払戻金を探す ─────────────────────────────────────────
+    payout = 0
+
+    # 方法1: "3連単" の直後に来る数字
+    m = re.search(r'3連単[^\d]{0,20}?(\d{3,7})', text)
+    if m:
+        payout = int(m.group(1))
+
+    # 方法2: 組番の直後に来る数字
+    if payout == 0 and combo:
+        pos = text.find(combo)
+        if pos >= 0:
+            after = text[pos: pos + 80]
+            for m2 in re.finditer(r'(\d{3,7})', after):
+                val = int(m2.group(1))
+                if 100 <= val <= 9_999_900:
+                    payout = val
+                    break
+
+    finished = bool(combo)
+    if finished:
+        print(f"[scraper] 結果: {combo}  払戻: {payout:,}円")
+    else:
+        print(f"[scraper] 結果未確定（レース未完了 or ページ構造変更）")
+
+    return {"combo": combo, "payout": payout, "finished": finished}

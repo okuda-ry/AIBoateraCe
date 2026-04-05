@@ -130,7 +130,10 @@ def predict_and_display(booster: lgb.Booster,
 
     # ベット配分: オッズあり → バリューベット、なし → 比例配分
     if odds_dict:
-        bets        = value_bet_allocate(probs_120, odds_dict, budget=budget, min_edge=0.05)
+        # 上位10予想に絞り、その中でEV > min_edge のものだけベット
+        probs_top10 = np.zeros(120)
+        probs_top10[top_idx] = probs_120[top_idx]
+        bets        = value_bet_allocate(probs_top10, odds_dict, budget=budget, min_edge=0.05)
         bet_mode    = "バリューベット（期待値>5%）"
         if not bets:
             bets     = {}

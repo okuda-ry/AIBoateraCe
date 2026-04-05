@@ -137,8 +137,11 @@ def run_prediction(jcd: str, hd: str, rno: int,
 
     # 掛け金配分: オッズあり → バリューベット、なし → 比例配分
     if odds_dict:
+        # 上位10予想に絞り、その中でEV > min_edge のものだけベット
+        probs_top10 = np.zeros(120)
+        probs_top10[top10_idx] = probs_120[top10_idx]
         bets_dict = value_bet_allocate(
-            probs_120, odds_dict, budget=budget, min_edge=min_edge
+            probs_top10, odds_dict, budget=budget, min_edge=min_edge
         )
         bet_mode = "value"
     else:
