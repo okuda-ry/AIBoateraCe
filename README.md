@@ -82,7 +82,8 @@ AiBoateraCe/
 │
 ├── docs/                   # 設計・戦略ドキュメント
 │   ├── DESIGN.md           # 自動売買システム設計書
-│   └── STRATEGY.md         # 収益化戦略書
+│   ├── STRATEGY.md         # 収益化戦略書
+│   └── MONITOR_UI_DESIGN.md# モニタリング Web UI 設計書
 │
 └── downloads/              # データファイル（git 管理外）
     ├── racelists/
@@ -422,6 +423,17 @@ python auto/notifier.py
 ---
 
 ### 実行方法
+
+> **注意:** `app.py`（Web UI）と `run_auto.py`（スケジューラ）は**別プロセス**です。
+> モニタリング UI でデータを確認しながらドライランを動かすには、ターミナルを2つ開いて両方を起動してください。
+>
+> ```bash
+> # ターミナル1 — Web UI（予測 + モニター）
+> python app.py
+>
+> # ターミナル2 — スケジューラ（予測・結果収集・DB書き込み）
+> python run_auto.py
+> ```
 
 ```bash
 # 今日の全レースを監視（ドライラン）
