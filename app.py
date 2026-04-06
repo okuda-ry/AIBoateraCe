@@ -223,6 +223,9 @@ def run_prediction(jcd: str, hd: str, rno: int,
         "has_odds":       bool(odds_dict),
         "bet_mode":       bet_mode,
         "ev_table":       ev_table[:20],   # EV上位20通りをテンプレートに渡す
+        # orchestrator が複数戦略を走らせるために使う内部データ
+        "_probs_120":     probs_120,
+        "_odds_dict":     odds_dict,
     }
 
 

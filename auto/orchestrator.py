@@ -25,7 +25,9 @@ from apscheduler.triggers.date import DateTrigger
 from data.scraper import scrape_schedule, scrape_result
 from auto.recorder import (
     init_db, upsert_race, save_prediction,
+    save_all_strategies,
     update_result, print_daily_summary, daily_summary,
+    get_history_for_bayes,
 )
 from auto.notifier import notify_daily_summary, send_line_message
 
@@ -47,7 +49,7 @@ MIN_EDGE          = 0.05   # 最低期待値
 
 def job_predict(race: dict, budget: int, min_edge: float) -> None:
     """
-    予測ジョブ: run_prediction() を呼び出して結果を DB に保存する。
+    予測ジョブ: run_prediction() を呼び出し、全戦略を実行して DB に保存する。
     run_prediction は app.py に定義されており、Flask を起動せずに利用する。
     """
     race_id = race["race_id"]
@@ -55,6 +57,8 @@ def job_predict(race: dict, budget: int, min_edge: float) -> None:
 
     try:
         from app import run_prediction
+        from models.strategies import run_all_strategies, STRATEGIES, build_bayes_strategy
+
         result = run_prediction(
             jcd        = race["jcd"],
             hd         = race["hd"],
@@ -65,15 +69,48 @@ def job_predict(race: dict, budget: int, min_edge: float) -> None:
             use_odds   = True,
             min_edge   = min_edge,
         )
-        save_prediction(race_id, result)
 
-        bets = result.get("bets", [])
-        if bets:
-            total = result.get("total_bet", 0)
-            print(f"[orchestrator] ベット候補: {len(bets)}件 / {total:,}円 "
-                  f"(ドライラン: 実際の投票は行いません)")
+        probs_120 = result.get("_probs_120")
+        odds_dict = result.get("_odds_dict", {})
+
+        if probs_120 is None or not odds_dict:
+            # オッズなし → Kelly のみ保存（旧互換）
+            save_prediction(race_id, result)
+            print(f"[orchestrator] オッズなし → Kelly のみ記録")
+            return
+
+        # ベイズ戦略: 過去データがあれば Optuna で最適化
+        strategies = dict(STRATEGIES)  # kelly + ip
+        history = get_history_for_bayes()
+        if history:
+            bayes_fn = build_bayes_strategy(
+                history, n_trials=30, budget=budget, min_bet=100
+            )
+            strategies["bayes"] = bayes_fn
+
+        # 全戦略を実行
+        print(f"[orchestrator] 戦略実行中: {list(strategies.keys())}")
+        strategy_bets = run_all_strategies(
+            probs_120, odds_dict, budget=budget,
+            strategies=strategies,
+            min_edge=min_edge,
+        )
+
+        # DB に保存
+        save_all_strategies(
+            race_id       = race_id,
+            strategy_bets = strategy_bets,
+            odds_dict     = odds_dict,
+            probs_120     = probs_120,
+            confidence    = result.get("confidence", 0.0) / 100,
+            has_odds      = bool(odds_dict),
+        )
+
+        any_bets = any(v for v in strategy_bets.values())
+        if any_bets:
+            print(f"[orchestrator] 全戦略完了 (ドライラン: 実際の投票は行いません)")
         else:
-            print(f"[orchestrator] 見送り推奨（期待値プラスの組み合わせなし）")
+            print(f"[orchestrator] 全戦略: 見送り推奨（期待値プラスの組み合わせなし）")
 
     except Exception:
         print(f"[orchestrator] 予測エラー: {race_id}")

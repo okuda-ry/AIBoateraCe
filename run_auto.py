@@ -53,14 +53,15 @@ def cmd_summary(args):
 
 
 def cmd_show_db(args):
-    """DB の内容をテキスト形式で表示する。"""
+    """DB の内容をテキスト形式で表示する（レース一覧 + 戦略別サマリー）。"""
     import sqlite3
-    from auto.recorder import DB_PATH
+    from auto.recorder import DB_PATH, init_db, strategy_summary
 
     if not DB_PATH.exists():
         print("DB が見つかりません。まず run_auto.py を実行してください。")
         return
 
+    init_db()
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
 
@@ -72,13 +73,15 @@ def cmd_show_db(args):
             r.race_id, r.venue, r.rno, r.stime,
             r.confidence,
             r.result_combo, r.result_payout,
-            COUNT(b.id)                               AS n_bets,
-            COALESCE(SUM(b.amount), 0)                AS total_bet,
-            COALESCE(SUM(b.payout), 0)                AS total_return,
+            COUNT(DISTINCT b.id)                       AS n_bets,
+            COALESCE(SUM(CASE WHEN b.strategy='kelly' THEN b.amount ELSE 0 END), 0) AS kelly_bet,
+            COALESCE(SUM(CASE WHEN b.strategy='ip'    THEN b.amount ELSE 0 END), 0) AS ip_bet,
+            COALESCE(SUM(CASE WHEN b.strategy='bayes' THEN b.amount ELSE 0 END), 0) AS bayes_bet,
+            COALESCE(SUM(b.payout), 0)                 AS total_return,
             COALESCE(SUM(b.payout), 0)
-                - COALESCE(SUM(b.amount), 0)          AS profit
+                - COALESCE(SUM(b.amount), 0)           AS profit
         FROM races r
-        LEFT JOIN bets b ON b.race_id = r.race_id
+        LEFT JOIN bets b ON b.race_id = r.race_id AND b.status != 'pending'
         {where}
         GROUP BY r.race_id
         ORDER BY r.hd, r.stime, r.jcd, r.rno
@@ -89,32 +92,48 @@ def cmd_show_db(args):
         con.close()
         return
 
-    print(f"\n{'レース':^22}  {'時刻':^6}  {'信頼':^5}  "
-          f"{'結果':^8}  {'払戻':^7}  "
-          f"{'賭':^6}  {'回収':^6}  {'損益':^7}")
-    print("-" * 80)
+    print(f"\n{'レース':^22}  {'時刻':^5}  {'結果':^8}  {'払戻':^7}  "
+          f"{'kelly':^6}  {'ip':^6}  {'bayes':^6}  {'回収':^6}  {'損益':^7}")
+    print("-" * 90)
 
     total_bet = total_return = 0
     for r in rows:
-        conf    = f"{r['confidence']:.0f}%" if r["confidence"] else "  —  "
         result  = r["result_combo"] or "未確定"
         payout  = f"{r['result_payout']:,}" if r["result_payout"] else "  —"
-        bet     = f"{r['total_bet']:,}" if r["total_bet"] else "  0"
+        kelly   = f"{r['kelly_bet']:,}" if r["kelly_bet"] else "  0"
+        ip      = f"{r['ip_bet']:,}"    if r["ip_bet"]    else "  0"
+        bayes   = f"{r['bayes_bet']:,}" if r["bayes_bet"] else "  0"
         ret     = f"{r['total_return']:,}" if r["total_return"] else "  0"
-        profit  = f"{r['profit']:+,}" if r["total_bet"] else "  —"
+        profit  = f"{r['profit']:+,}"
         print(f"  {r['venue']:>6} {r['rno']:>2}R  {r['stime']}  "
-              f"{conf:>5}  {result:>8}  {payout:>7}  "
-              f"{bet:>6}  {ret:>6}  {profit:>7}")
-        total_bet    += r["total_bet"] or 0
+              f"{result:>8}  {payout:>7}  "
+              f"{kelly:>6}  {ip:>6}  {bayes:>6}  "
+              f"{ret:>6}  {profit:>7}")
+        total_bet    += (r["kelly_bet"] or 0) + (r["ip_bet"] or 0) + (r["bayes_bet"] or 0)
         total_return += r["total_return"] or 0
 
-    print("-" * 80)
+    print("-" * 90)
     profit = total_return - total_bet
     roi    = total_return / total_bet * 100 if total_bet else 0
-    print(f"  {'合計':>20}  {'賭':>15} {total_bet:>6,}  "
+    print(f"  {'合計':>28}  "
+          f"{'賭計':>10} {total_bet:>6,}  "
           f"{'回収':>2} {total_return:>6,}  {profit:>+7,}  ROI:{roi:.1f}%")
     print()
     con.close()
+
+    # 戦略別サマリー
+    rows_s = strategy_summary(hd)
+    if rows_s:
+        print(f"  {'戦略':8s}  {'賭レース':>6}  {'賭金':>8}  {'回収':>8}  {'損益':>8}  {'ROI':>7}  {'的中':>5}")
+        print("  " + "-" * 62)
+        for r in rows_s:
+            print(
+                f"  {r['strategy']:8s}  {r['races_bet']:>6}  "
+                f"{r['total_bet']:>8,}  {r['total_return']:>8,}  "
+                f"{r['profit']:>+8,}  {r['roi_pct']:>6.1f}%  "
+                f"{r['hit_count']:>2}({r['hit_rate_pct']:.0f}%)"
+            )
+        print()
 
 
 # -------------------------------------------------------
