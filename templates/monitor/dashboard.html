@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}モニター — {{ hd_display }}{% endblock %}
+
+{% block content %}
+<meta http-equiv="refresh" content="60">
+
+<!-- ヘッダー行 -->
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+  <div>
+    <h2 class="monitor-page-title mb-0">
+      <i class="bi bi-bar-chart-line-fill me-2" style="color:var(--accent)"></i>ドライランモニター
+    </h2>
+    <div class="text-muted" style="font-size:.85rem">{{ hd_display }} &nbsp;·&nbsp; 60秒ごとに自動更新</div>
+  </div>
+
+  <!-- 日付セレクタ -->
+  <form method="get" action="{{ url_for('monitor.dashboard') }}">
+    <div class="d-flex gap-2 align-items-center">
+      <select name="hd" class="form-control-custom" style="width:160px"
+              onchange="this.form.submit()">
+        {% for d in dates %}
+          <option value="{{ d }}" {% if d == hd %}selected{% endif %}>
+            {{ d[:4] }}/{{ d[4:6] }}/{{ d[6:8] }}
+          </option>
+        {% endfor %}
+        {% if not dates %}
+          <option value="{{ hd }}">{{ hd_display }}</option>
+        {% endif %}
+      </select>
+      <a href="{{ url_for('monitor.races', hd=hd) }}" class="btn-monitor-link">
+        <i class="bi bi-list-ul me-1"></i>レース一覧
+      </a>
+      <a href="{{ url_for('monitor.history') }}" class="btn-monitor-link">
+        <i class="bi bi-graph-up me-1"></i>履歴
+      </a>
+    </div>
+  </form>
+</div>
+
+{% if not has_db %}
+  <div class="monitor-empty-card">
+    <div class="monitor-empty-icon">📂</div>
+    <div class="monitor-empty-msg">データが見つかりません</div>
+    <div class="text-muted" style="font-size:.875rem">
+      <code>python run_auto.py</code> を実行するとデータが記録されます。
+    </div>
+  </div>
+{% else %}
+
+<!-- サマリーカード -->
+{% if summary %}
+<div class="monitor-cards-row mb-4">
+  <div class="monitor-card">
+    <div class="monitor-card-label">スケジュール済み</div>
+    <div class="monitor-card-value">{{ summary.races_scheduled }}<span class="monitor-card-unit">R</span></div>
+  </div>
+  <div class="monitor-card">
+    <div class="monitor-card-label">予測実行</div>
+    <div class="monitor-card-value">{{ summary.races_predicted }}<span class="monitor-card-unit">R</span></div>
+  </div>
+  <div class="monitor-card">
+    <div class="monitor-card-label">ベットあり</div>
+    <div class="monitor-card-value">{{ summary.races_bet }}<span class="monitor-card-unit">R</span></div>
+  </div>
+  <div class="monitor-card">
+    <div class="monitor-card-label">見送り</div>
+    <div class="monitor-card-value">{{ summary.races_skip }}<span class="monitor-card-unit">R</span></div>
+  </div>
+</div>
+
+<!-- 損益カード -->
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card-dark p-4">
+      <div class="section-title mb-3"><i class="bi bi-wallet2 me-2"></i>損益サマリー</div>
+      <div class="pnl-grid">
+        <div class="pnl-row">
+          <span class="pnl-label">総賭け金</span>
+          <span class="pnl-value">{{ "{:,}".format(summary.total_bet) }} 円</span>
+        </div>
+        <div class="pnl-row">
+          <span class="pnl-label">総払戻</span>
+          <span class="pnl-value">{{ "{:,}".format(summary.total_return) }} 円</span>
+        </div>
+        <div class="pnl-row pnl-row-total">
+          <span class="pnl-label">損益</span>
+          <span class="pnl-value {{ profit_class(summary.profit) }} fw-bold">
+            {{ "{:+,}".format(summary.profit) }} 円
+          </span>
+        </div>
+        <div class="pnl-row">
+          <span class="pnl-label">回収率</span>
+          <span class="pnl-value {{ profit_class(summary.roi_pct - 100) }}">
+            {{ "%.1f"|format(summary.roi_pct) }} %
+          </span>
+        </div>
+        <div class="pnl-row">
+          <span class="pnl-label">的中</span>
+          <span class="pnl-value">{{ summary.hit_count }} 回（{{ "%.1f"|format(summary.hit_rate_pct) }}%）</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 戦略比較 -->
+  <div class="col-md-6">
+    <div class="card-dark p-4 h-100">
+      <div class="section-title mb-3"><i class="bi bi-diagram-3 me-2"></i>戦略別比較</div>
+      {% if strategies %}
+        <table class="monitor-table w-100">
+          <thead>
+            <tr>
+              <th>戦略</th>
+              <th class="text-end">賭け金</th>
+              <th class="text-end">損益</th>
+              <th class="text-end">ROI</th>
+              <th class="text-end">的中</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in strategies %}
+            <tr>
+              <td><span class="strategy-badge strategy-{{ s.strategy }}">{{ s.strategy }}</span></td>
+              <td class="text-end font-mono">{{ "{:,}".format(s.total_bet) }}</td>
+              <td class="text-end font-mono {{ profit_class(s.profit) }}">{{ "{:+,}".format(s.profit) }}</td>
+              <td class="text-end font-mono {{ profit_class(s.roi_pct - 100) }}">{{ "%.1f"|format(s.roi_pct) }}%</td>
+              <td class="text-end">{{ s.hit_count }}({{ "%.0f"|format(s.hit_rate_pct) }}%)</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="text-muted" style="font-size:.875rem">結果確定したレースがまだありません。</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- レース一覧（当日） -->
+<div class="card-dark p-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="section-title"><i class="bi bi-list-check me-2"></i>レース状況</div>
+    <a href="{{ url_for('monitor.races', hd=hd) }}" class="btn-monitor-link" style="font-size:.8rem">
+      すべて表示 <i class="bi bi-arrow-right ms-1"></i>
+    </a>
+  </div>
+
+  {% if races %}
+    <div class="races-mini-grid">
+      {% for r in races %}
+        <a href="{{ url_for('monitor.race_detail', race_id=r.race_id) }}"
+           class="race-mini-card {% if r.result_combo %}race-mini-done{% elif r.n_bets > 0 %}race-mini-bet{% elif r.predicted_at %}race-mini-skip{% endif %}">
+          <div class="race-mini-venue">{{ r.venue }}</div>
+          <div class="race-mini-rno">{{ r.rno }}R</div>
+          <div class="race-mini-time">{{ r.stime }}</div>
+          {% if r.result_combo %}
+            <div class="race-mini-result">{{ r.result_combo }}</div>
+          {% elif r.n_bets > 0 %}
+            <div class="race-mini-bets">{{ r.n_bets }}通り</div>
+          {% elif r.predicted_at %}
+            <div class="race-mini-skip-lbl">見送り</div>
+          {% else %}
+            <div class="race-mini-skip-lbl">–</div>
+          {% endif %}
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="text-muted" style="font-size:.875rem">レースデータがありません。</div>
+  {% endif %}
+</div>
+
+{% endif %}
+{% endblock %}

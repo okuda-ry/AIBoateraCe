@@ -16,9 +16,14 @@
       <span class="brand-icon">🚤</span>
       <span class="brand-text">競艇 AI <span class="brand-sub">Prediction</span></span>
     </a>
-    <div class="navbar-nav ms-auto">
-      <a class="nav-link" href="{{ url_for('index') }}">
-        <i class="bi bi-house-fill me-1"></i>ホーム
+    <div class="navbar-nav ms-auto d-flex flex-row gap-1">
+      <a class="nav-link {% if request.endpoint and request.endpoint.startswith('monitor') %}{% else %}nav-link-active{% endif %}"
+         href="{{ url_for('index') }}">
+        <i class="bi bi-lightning-fill me-1"></i>予測
+      </a>
+      <a class="nav-link {% if request.endpoint and request.endpoint.startswith('monitor') %}nav-link-active{% endif %}"
+         href="{{ url_for('monitor.dashboard') }}">
+        <i class="bi bi-bar-chart-line-fill me-1"></i>モニター
       </a>
     </div>
   </div>

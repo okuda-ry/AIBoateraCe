@@ -17,6 +17,7 @@
 | **バリューベット** | 上位10予想の中で EV > 閾値 の組のみ 1/4 Kelly で購入 |
 | **比例配分（フォールバック）** | オッズ未取得時は確率比例で N 円を配分 |
 | **多戦略比較** | Kelly / 整数計画法 を同時実行して戦略ごとの損益を比較（ベイズは実装済み・現在無効） |
+| **モニタリング UI** | ドライラン結果をブラウザで確認（ダッシュボード・レース一覧・詳細・累積グラフ） |
 | **自動モニタリング** | 当日全レースを自動スケジューリング・予測・損益計算（ドライラン） |
 | **LINE 通知** | 毎日 21:00 に日次損益レポートを LINE で受信 |
 | **Optuna 最適化** | NDCG@3 を指標にハイパーパラメータを自動探索 |
@@ -34,6 +35,8 @@ AiBoateraCe/
 ├── requirements.txt
 ├── .env                    # LINE 認証情報（git 管理外・要作成）
 ├── .env.example            # .env のテンプレート
+│
+├── monitor.py              # モニタリング Web UI（Flask Blueprint）
 │
 ├── auto/                   # 自動モニタリングモジュール
 │   ├── orchestrator.py     # スケジューラ（APScheduler）・ジョブ管理
@@ -64,7 +67,12 @@ AiBoateraCe/
 ├── templates/              # Jinja2 テンプレート
 │   ├── base.html
 │   ├── index.html
-│   └── result.html
+│   ├── result.html
+│   └── monitor/
+│       ├── dashboard.html  # /monitor ダッシュボード
+│       ├── races.html      # /monitor/races レース一覧
+│       ├── race_detail.html# /monitor/race/<id> レース詳細
+│       └── history.html    # /monitor/history 累積グラフ
 │
 ├── static/css/
 │   └── style.css
@@ -178,6 +186,14 @@ python app.py
 ```
 
 ブラウザで **http://localhost:5000** を開く。
+
+| URL | 機能 |
+|-----|------|
+| `/` | 予測ページ（手動） |
+| `/monitor` | ドライランダッシュボード |
+| `/monitor/races?hd=YYYYMMDD` | 当日レース一覧 |
+| `/monitor/race/<race_id>` | レース詳細・戦略別ベット内訳 |
+| `/monitor/history` | 累積損益グラフ（Chart.js） |
 
 ### 使い方
 

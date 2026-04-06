@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}
+  {% if race %}{{ race.venue }} {{ race.rno }}R — 詳細{% else %}レース詳細{% endif %}
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+  <div>
+    {% if race %}
+      <h2 class="monitor-page-title mb-0">
+        <span class="venue-badge">{{ race.venue }}</span>{{ race.rno }}R
+      </h2>
+      <div class="text-muted" style="font-size:.85rem">
+        {{ race.hd_display }} &nbsp;·&nbsp; 発走 {{ race.stime }}
+      </div>
+    {% else %}
+      <h2 class="monitor-page-title mb-0">レース詳細</h2>
+    {% endif %}
+  </div>
+  <a href="javascript:history.back()" class="btn-back">
+    <i class="bi bi-arrow-left me-1"></i>戻る
+  </a>
+</div>
+
+{% if not has_db or not race %}
+  <div class="monitor-empty-card">
+    <div class="monitor-empty-icon">🔍</div>
+    <div class="monitor-empty-msg">レースデータが見つかりません</div>
+  </div>
+{% else %}
+
+<!-- 結果バナー -->
+{% if race.result_combo %}
+  <div class="result-banner mb-4">
+    <div class="result-banner-inner">
+      <span class="result-label">結果</span>
+      <span class="result-combo">{{ race.result_combo }}</span>
+      <span class="result-payout">{{ "{:,}".format(race.result_payout) }} 円</span>
+    </div>
+  </div>
+{% else %}
+  <div class="alert-odds-na mb-4">
+    <i class="bi bi-hourglass-split me-2"></i>結果未確定（発走 {{ race.stime }} ）
+  </div>
+{% endif %}
+
+<!-- 戦略比較サマリー -->
+{% if strategy_totals %}
+<div class="row g-3 mb-4">
+  {% for strat, tot in strategy_totals.items() %}
+  <div class="col-sm-6 col-lg-3">
+    <div class="card-dark p-3 h-100">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <span class="strategy-badge strategy-{{ strat }}">{{ strat }}</span>
+        <span class="text-muted" style="font-size:.8rem">{{ tot.n_bets }}通り</span>
+      </div>
+      <div class="pnl-grid" style="gap:.3rem">
+        <div class="pnl-row">
+          <span class="pnl-label">賭け金</span>
+          <span class="pnl-value font-mono">{{ "{:,}".format(tot.total_bet) }}</span>
+        </div>
+        <div class="pnl-row">
+          <span class="pnl-label">払戻</span>
+          <span class="pnl-value font-mono">{{ "{:,}".format(tot.total_return) }}</span>
+        </div>
+        <div class="pnl-row">
+          <span class="pnl-label">損益</span>
+          <span class="pnl-value font-mono {{ profit_class(tot.profit) }} fw-bold">
+            {{ "{:+,}".format(tot.profit) }}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- 戦略別ベット内訳 -->
+{% if bets_by_strategy %}
+  <!-- タブ -->
+  <ul class="nav nav-tabs-custom mb-3" id="stratTab">
+    {% for strat in bets_by_strategy.keys() %}
+    <li class="nav-item">
+      <button class="nav-tab-btn {% if loop.first %}active{% endif %}"
+              data-bs-toggle="tab"
+              data-bs-target="#tab-{{ strat }}">
+        <span class="strategy-badge strategy-{{ strat }} me-1">{{ strat }}</span>
+        {{ bets_by_strategy[strat]|length }}通り
+      </button>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <div class="tab-content">
+    {% for strat, blist in bets_by_strategy.items() %}
+    <div class="tab-pane {% if loop.first %}show active{% endif %}" id="tab-{{ strat }}">
+      <div class="card-dark">
+        <div class="table-responsive">
+          <table class="monitor-table w-100">
+            <thead>
+              <tr>
+                <th>組番</th>
+                <th class="text-end">賭け金</th>
+                <th class="text-end">オッズ</th>
+                <th class="text-end">EV</th>
+                <th class="text-end">確率</th>
+                <th>状態</th>
+                <th class="text-end">払戻</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for b in blist %}
+              {% set is_winner = (b.status == 'win') %}
+              {% set is_result = (race.result_combo and b.combo == race.result_combo) %}
+              <tr class="{% if is_winner %}bet-row-win{% elif is_result %}bet-row-result{% endif %}">
+                <td>
+                  <span class="combo-str {% if is_result %}combo-str-top{% endif %}">
+                    {{ b.combo }}
+                  </span>
+                </td>
+                <td class="text-end font-mono">{{ "{:,}".format(b.amount) }}</td>
+                <td class="text-end font-mono">
+                  {% if b.odds_at_bet %}{{ "%.1f"|format(b.odds_at_bet) }}x{% else %}—{% endif %}
+                </td>
+                <td class="text-end font-mono">
+                  {% if b.ev_at_bet is not none %}
+                    <span class="{{ 'text-profit' if b.ev_at_bet >= 0 else 'text-muted' }}">
+                      {{ "%+.1f"|format(b.ev_at_bet * 100) }}%
+                    </span>
+                  {% else %}—{% endif %}
+                </td>
+                <td class="text-end font-mono text-muted">
+                  {% if b.prob %}{{ "%.2f"|format(b.prob * 100) }}%{% else %}—{% endif %}
+                </td>
+                <td>
+                  {% if b.status == 'win' %}
+                    <span class="status-badge status-win">的中</span>
+                  {% elif b.status == 'lose' %}
+                    <span class="status-badge status-lose">外れ</span>
+                  {% else %}
+                    <span class="status-badge status-pending-sm">未確定</span>
+                  {% endif %}
+                </td>
+                <td class="text-end font-mono {% if b.payout %}text-profit{% else %}text-muted{% endif %}">
+                  {% if b.payout %}{{ "{:,}".format(b.payout) }}{% else %}—{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+{% else %}
+  <div class="monitor-empty-card">
+    <div class="monitor-empty-msg">ベット記録がありません（見送り）</div>
+  </div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // シンプルなタブ切り替え（Bootstrap の JS に委譲）
+  document.querySelectorAll('[data-bs-toggle="tab"]').forEach(btn => {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.nav-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => {
+        p.classList.remove('show', 'active');
+      });
+      this.classList.add('active');
+      const target = document.querySelector(this.dataset.bsTarget);
+      if (target) target.classList.add('show', 'active');
+    });
+  });
+</script>
+{% endblock %}

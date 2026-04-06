@@ -15,6 +15,7 @@ import joblib
 import lightgbm as lgb
 import numpy as np
 from flask import Flask, flash, redirect, render_template, request, url_for
+from monitor import monitor_bp
 
 from data.scraper import scrape_race, scrape_odds, VENUE_JCD
 from models.lgbm_ranking import _predict_scores, build_X
@@ -26,6 +27,7 @@ from models.calibration import load_calibrator, apply_calibration
 
 app = Flask(__name__)
 app.secret_key = "boatrace_ai_2026"
+app.register_blueprint(monitor_bp)
 
 MODEL_DIR = Path("models/saved")
 
