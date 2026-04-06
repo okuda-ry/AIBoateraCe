@@ -27,7 +27,6 @@ from auto.recorder import (
     init_db, upsert_race, save_prediction,
     save_all_strategies,
     update_result, print_daily_summary, daily_summary,
-    get_history_for_bayes,
 )
 from auto.notifier import notify_daily_summary, send_line_message
 
@@ -57,7 +56,7 @@ def job_predict(race: dict, budget: int, min_edge: float) -> None:
 
     try:
         from app import run_prediction
-        from models.strategies import run_all_strategies, STRATEGIES, build_bayes_strategy
+        from models.strategies import run_all_strategies, STRATEGIES
 
         result = run_prediction(
             jcd        = race["jcd"],
@@ -79,14 +78,11 @@ def job_predict(race: dict, budget: int, min_edge: float) -> None:
             print(f"[orchestrator] オッズなし → Kelly のみ記録")
             return
 
-        # ベイズ戦略: 過去データがあれば Optuna で最適化
-        strategies = dict(STRATEGIES)  # kelly + ip
-        history = get_history_for_bayes()
-        if history:
-            bayes_fn = build_bayes_strategy(
-                history, n_trials=30, budget=budget, min_bet=100
-            )
-            strategies["bayes"] = bayes_fn
+        # ベイズ戦略: probs_120 を DB に保存するまでは無効
+        # get_history_for_bayes() が返す probs=None のままだと
+        # allocate_kelly 内の np.argsort(None) でクラッシュするため。
+        # TODO: races テーブルに probs BLOB カラムを追加して有効化する
+        strategies = dict(STRATEGIES)  # kelly + ip のみ
 
         # 全戦略を実行
         print(f"[orchestrator] 戦略実行中: {list(strategies.keys())}")
