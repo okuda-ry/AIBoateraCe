@@ -13,9 +13,19 @@ from pathlib import Path
 
 from flask import Blueprint, render_template, request
 
-from auto.recorder import DB_PATH, daily_summary, strategy_summary
+from auto.recorder import DB_PATH, init_db, daily_summary, strategy_summary
 
 monitor_bp = Blueprint("monitor", __name__, url_prefix="/monitor")
+
+_db_initialized = False
+
+@monitor_bp.before_request
+def _ensure_db():
+    """DB ファイルが存在する場合、テーブルを初期化する（冪等）。"""
+    global _db_initialized
+    if not _db_initialized and DB_PATH.exists():
+        init_db()
+        _db_initialized = True
 
 
 # -------------------------------------------------------
