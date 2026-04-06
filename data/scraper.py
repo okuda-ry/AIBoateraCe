@@ -835,20 +835,33 @@ def scrape_result(jcd: str, hd: str, rno: int) -> dict:
             break
 
     # ── 払戻金を探す ─────────────────────────────────────────
+    # boatrace.jp の払戻金表記: "¥3,530" や "3,530" (カンマ区切り)
+    # ¥マーク・カンマを含む形式に対応する必要がある
+
+    def _extract_payout(s: str) -> int:
+        """'¥3,530' や '3530' → 3530 に変換する"""
+        # ¥ と カンマ を除去してから数値化
+        cleaned = re.sub(r'[¥,￥]', '', s)
+        m = re.search(r'(\d+)', cleaned)
+        return int(m.group(1)) if m else 0
+
     payout = 0
 
-    # 方法1: "3連単" の直後に来る数字
-    m = re.search(r'3連単[^\d]{0,20}?(\d{3,7})', text)
+    # 方法1: "3連単" の直後に来る ¥付き金額または数字列
+    # ¥3,530 または 3,530 または 3530 の形式に対応
+    m = re.search(r'3連単.{0,60}?[¥￥]?([\d,]{3,10})', text, re.DOTALL)
     if m:
-        payout = int(m.group(1))
+        val = _extract_payout(m.group(1))
+        if val >= 100:
+            payout = val
 
-    # 方法2: 組番の直後に来る数字
+    # 方法2: 組番の直後に来る金額
     if payout == 0 and combo:
         pos = text.find(combo)
         if pos >= 0:
-            after = text[pos: pos + 80]
-            for m2 in re.finditer(r'(\d{3,7})', after):
-                val = int(m2.group(1))
+            after = text[pos: pos + 120]
+            for m2 in re.finditer(r'[¥￥]?([\d,]{3,10})', after):
+                val = _extract_payout(m2.group(1))
                 if 100 <= val <= 9_999_900:
                     payout = val
                     break
