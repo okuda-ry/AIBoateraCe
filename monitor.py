@@ -131,6 +131,9 @@ def races():
 
     if has_db:
         con = _conn()
+        if con is None:
+            return render_template("monitor/races.html", hd=hd, hd_display=_hd_display(hd),
+                                   races=[], has_db=False, profit_class=_profit_class)
         rows = con.execute(
             """
             SELECT
@@ -209,7 +212,11 @@ def race_detail(race_id: str):
 
     if has_db:
         con = _conn()
+        if con is None:
+            has_db = False
+            con = None
 
+    if has_db and con:
         race_row = con.execute(
             "SELECT * FROM races WHERE race_id = ?", (race_id,)
         ).fetchone()
