@@ -90,8 +90,10 @@ def allocate_kelly(
     kelly_f = np.maximum(kelly_f, 0.0)
     if kelly_f.sum() == 0:
         return {}
-    if kelly_f.sum() > 1.0:
-        kelly_f /= kelly_f.sum()
+
+    # 3連単は確率が小さく kelly_f × budget が数円になって丸め後ゼロになる。
+    # Kelly はどれに賭けるかを決め、比率で予算を分配する形に正規化する。
+    kelly_f = kelly_f / kelly_f.sum()
 
     return _round_bets(budget * kelly_f, min_bet, budget)
 
@@ -160,19 +162,15 @@ def allocate_ip(
         # 予算制約: sum(x) <= budget
         A_ub = np.ones((1, n))
         b_ub = np.array([float(budget)])
-        # 各変数の上限
-        bounds = [(0.0, float(budget)) for _ in range(n)]
+        # 各変数の上限: 1通りへの集中を防ぐため budget/max_combos を上限とする
+        per_combo_max = float(budget) / max_combos
+        bounds = [(0.0, per_combo_max) for _ in range(n)]
 
         res = linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=bounds, method="highs")
         if res.success:
             amounts_lp = np.zeros(120)
             amounts_lp[candidates] = res.x
-            # max_combos 制約: LP 解を丸めて上位 max_combos だけ残す
-            nonzero = np.argsort(-amounts_lp[candidates])[:max_combos]
-            kept    = candidates[nonzero]
-            amounts_strict = np.zeros(120)
-            amounts_strict[kept] = amounts_lp[kept]
-            lp_result = _round_bets(amounts_strict, min_bet, budget)
+            lp_result = _round_bets(amounts_lp, min_bet, budget)
             if lp_result:
                 result = lp_result
     except ImportError:
