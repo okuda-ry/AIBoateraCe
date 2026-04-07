@@ -1,4 +1,4 @@
-"""
+r"""
 tools/setup_shortcut.py — デスクトップショートカット作成スクリプト。
 
 一度だけ実行してください:
@@ -15,9 +15,8 @@ PROJECT  = Path(__file__).parent.parent
 TOOLS    = Path(__file__).parent
 ICON_OUT = TOOLS / "boatrace.ico"
 DESKTOP  = Path.home() / "OneDrive" / "デスクトップ"
-PYTHONW  = Path("C:/venv/boatrace/Scripts/pythonw.exe")
-LAUNCH   = PROJECT / "launch.py"
-SHORTCUT = DESKTOP / "競艇AI.lnk"
+START_BAT = PROJECT / "start.bat"
+SHORTCUT  = DESKTOP / "競艇AI.lnk"
 
 
 # -------------------------------------------------------
@@ -45,16 +44,12 @@ def make_icon():
     R = (210, 45,  35)    # 赤ストライプ
     Y = (240, 190, 30)    # 黄色アクセント
 
-    # 32x32 グリッド（デフォルト: 空）
     g = [[S] * 32 for _ in range(32)]
 
-    # ---- 水面（row 18〜31）----
     for y in range(18, 32):
         for x in range(32):
             g[y][x] = D
 
-    # ---- 波パターン ----
-    # 規則的なハイライトで波を表現
     wave_rows = [20, 23, 26, 29]
     for wy in wave_rows:
         for x in range(0, 32, 5):
@@ -62,46 +57,37 @@ def make_icon():
                 if x + dx < 32:
                     g[wy][x + dx] = L
 
-    # ---- 航跡・スプレー（船の後方・左側）----
     for y in range(16, 21):
         for x in range(0, 8):
             dist = x + (y - 16)
             if dist < 10:
                 g[y][x] = P if (x + y) % 2 == 0 else L
 
-    # ---- 船体ライン（row 15〜18, col 5〜27）----
-    # 赤ストライプ（row 15）
     for x in range(6, 27):
         g[15][x] = R
     g[15][5]  = K
     g[15][27] = K
 
-    # 白い船体（row 16〜17）
     for x in range(5, 28):
         g[16][x] = W
     for x in range(6, 27):
         g[17][x] = W
 
-    # 船体アウトライン
     g[16][4]  = K;  g[16][28] = K
     g[17][5]  = K;  g[17][27] = K
 
-    # 船底（row 18、アウトライン）
     for x in range(5, 28):
         g[18][x] = K
 
-    # 船首（右側を尖らせる）
     g[14][26] = K
     g[15][27] = K;  g[15][28] = K
     g[16][28] = K;  g[16][29] = K
     g[17][27] = K;  g[17][28] = W
 
-    # ---- キャビン（row 10〜15, col 9〜19）----
     for y in range(10, 15):
         for x in range(9, 20):
             g[y][x] = G
 
-    # キャビンアウトライン
     for x in range(9, 20):
         g[10][x] = K
         g[14][x] = K
@@ -109,22 +95,17 @@ def make_icon():
         g[y][9]  = K
         g[y][19] = K
 
-    # キャビン上部（屋根のアクセント）
     for x in range(10, 19):
         g[10][x] = K
     for x in range(11, 18):
         g[9][x] = K
 
-    # ---- 窓（2つ）----
     for y in range(11, 14):
-        # 左窓
         for x in range(11, 14):
             g[y][x] = V
-        # 右窓
         for x in range(15, 18):
             g[y][x] = V
 
-    # 窓枠
     for x in [11, 13, 15, 17]:
         g[11][x] = K; g[13][x] = K
     for y in [11, 13]:
@@ -133,19 +114,15 @@ def make_icon():
         for x in range(15, 18):
             g[y][x] = K
 
-    # ---- 黄色ナンバー「1」（キャビン前面）----
-    # 小さい "1" を col 21〜23、row 12〜16 に描く
     for y in range(12, 16):
         g[y][22] = Y
     g[12][21] = Y
 
-    # ---- 画像生成 ----
     img32 = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
     for y in range(32):
         for x in range(32):
             img32.putpixel((x, y), g[y][x] + (255,))
 
-    # ICO 保存（16, 32, 48px の3サイズ）
     TOOLS.mkdir(exist_ok=True)
     img32.save(str(ICON_OUT), format="ICO", sizes=[(16, 16), (32, 32), (48, 48)])
     print(f"[setup] アイコン作成完了: {ICON_OUT}")
@@ -161,22 +138,20 @@ def make_shortcut(icon_path: Path):
         print(f"[setup] デスクトップが見つかりません: {DESKTOP}")
         return
 
-    # パスをバックスラッシュに統一（PowerShell 用）
-    lnk      = str(SHORTCUT).replace("/", "\\")
-    target   = str(PYTHONW).replace("/", "\\")
-    args     = f'"{str(LAUNCH).replace("/", "\\")}"'
-    workdir  = str(PROJECT).replace("/", "\\")
-    ico      = str(icon_path).replace("/", "\\")
+    # start.bat へのショートカット（cmd.exe /c で実行）
+    bat  = str(START_BAT).replace("/", "\\")
+    lnk  = str(SHORTCUT).replace("/", "\\")
+    ico  = str(icon_path).replace("/", "\\")
+    wdir = str(PROJECT).replace("/", "\\")
 
-    # PowerShell スクリプトを一時ファイルに書き出してから実行
-    # （日本語パスを含む場合に -Command 直渡しが文字化けすることを回避）
     ps_lines = [
         "$WshShell = New-Object -ComObject WScript.Shell",
         f'$sc = $WshShell.CreateShortcut("{lnk}")',
-        f'$sc.TargetPath       = "{target}"',
-        f'$sc.Arguments        = \'{args}\'',
-        f'$sc.WorkingDirectory = "{workdir}"',
+        '$sc.TargetPath       = "cmd.exe"',
+        f'$sc.Arguments        = \'/c "{bat}"\'',
+        f'$sc.WorkingDirectory = "{wdir}"',
         f'$sc.IconLocation     = "{ico}"',
+        '$sc.WindowStyle      = 7',  # 7 = 最小化して起動（バッチ画面が邪魔にならない）
         '$sc.Description      = "競艇AI — ドライランモニター起動"',
         "$sc.Save()",
         'Write-Host "OK"',
