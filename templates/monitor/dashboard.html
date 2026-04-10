@@ -150,7 +150,7 @@
     <div class="races-mini-grid">
       {% for r in races %}
         <a href="{{ url_for('monitor.race_detail', race_id=r.race_id) }}"
-           class="race-mini-card {% if r.result_combo %}race-mini-done{% elif r.n_bets > 0 %}race-mini-bet{% elif r.predicted_at %}race-mini-skip{% endif %}">
+           class="race-mini-card {% if r.win_count %}race-mini-hit{% elif r.result_combo %}race-mini-done{% elif r.n_bets > 0 %}race-mini-bet{% elif r.predicted_at %}race-mini-skip{% endif %}">
           <div class="race-mini-venue">{{ r.venue }}</div>
           <div class="race-mini-rno">{{ r.rno }}R</div>
           <div class="race-mini-time">{{ r.stime }}</div>

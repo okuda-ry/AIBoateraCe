@@ -37,6 +37,9 @@
       <span class="result-label">結果</span>
       <span class="result-combo">{{ race.result_combo }}</span>
       <span class="result-payout">{{ "{:,}".format(race.result_payout) }} 円</span>
+      {% if result_prob is not none %}
+        <span class="result-prob">予想確率 {{ "%.2f"|format(result_prob * 100) }}%</span>
+      {% endif %}
     </div>
   </div>
 {% else %}

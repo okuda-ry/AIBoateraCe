@@ -47,7 +47,7 @@
       </thead>
       <tbody>
         {% for r in races %}
-        <tr class="monitor-row-link" onclick="location.href='{{ url_for('monitor.race_detail', race_id=r.race_id) }}'">
+        <tr class="monitor-row-link{% if r.win_count %} monitor-row-hit{% endif %}" onclick="location.href='{{ url_for('monitor.race_detail', race_id=r.race_id) }}'">
           <td class="fw-500">{{ r.venue }}</td>
           <td class="font-mono">{{ r.rno }}</td>
           <td class="font-mono">{{ r.stime }}</td>

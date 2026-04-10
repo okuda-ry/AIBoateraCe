@@ -94,7 +94,8 @@ def dashboard():
             SELECT r.race_id, r.venue, r.rno, r.stime,
                    r.result_combo, r.result_payout,
                    r.predicted_at,
-                   COUNT(b.id) AS n_bets
+                   COUNT(b.id) AS n_bets,
+                   COUNT(CASE WHEN b.status='win' THEN 1 END) AS win_count
             FROM races r
             LEFT JOIN bets b ON b.race_id = r.race_id
             WHERE r.hd = ?
@@ -256,12 +257,25 @@ def race_detail(race_id: str):
             "n_bets":       len(blist),
         }
 
+    # 的中コンボの予想確率（いずれかの戦略でベットしていれば取得できる）
+    result_prob: float | None = None
+    if race and race.get("result_combo"):
+        result_c = race["result_combo"]
+        for blist in bets_by_strategy.values():
+            for b in blist:
+                if b["combo"] == result_c and b.get("prob") is not None:
+                    result_prob = b["prob"]
+                    break
+            if result_prob is not None:
+                break
+
     return render_template(
         "monitor/race_detail.html",
         race=race,
         race_id=race_id,
         bets_by_strategy=bets_by_strategy,
         strategy_totals=strategy_totals,
+        result_prob=result_prob,
         has_db=has_db,
         profit_class=_profit_class,
     )

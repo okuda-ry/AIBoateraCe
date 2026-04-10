@@ -571,7 +571,10 @@ body {
 }
 .monitor-table tbody tr:last-child td { border-bottom: none; }
 .monitor-row-link { cursor: pointer; }
-.monitor-row-link:hover { background: var(--bg-card-alt); }
+.monitor-row-link:hover > td { background: var(--bg-card-alt); }
+.monitor-row-hit > td { background: rgba(63,185,80,.15); border-bottom-color: rgba(63,185,80,.2); }
+.monitor-row-hit > td:first-child { border-left: 3px solid var(--accent-green); padding-left: calc(.75rem - 3px); }
+.monitor-row-hit:hover > td { background: rgba(63,185,80,.24); }
 
 /* ---- ステータスバッジ ---- */
 .status-badge {
@@ -606,6 +609,7 @@ body {
 .result-label   { font-size: .8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
 .result-combo   { font-family: monospace; font-size: 1.4rem; font-weight: 800; color: var(--gold); letter-spacing: .1em; }
 .result-payout  { font-size: 1.2rem; font-weight: 700; color: var(--accent-green); }
+.result-prob    { font-size: .85rem; color: var(--text-muted); background: rgba(255,255,255,.06); border-radius: 6px; padding: .2rem .6rem; }
 
 /* ---- レース一覧ミニグリッド（ダッシュボード） ---- */
 .races-mini-grid {
@@ -629,6 +633,8 @@ body {
 .race-mini-done    { border-color: rgba(88,166,255,.35); }
 .race-mini-bet     { border-color: rgba(63,185,80,.35); }
 .race-mini-skip    { opacity: .6; }
+.race-mini-hit     { border-color: var(--accent-green); background: rgba(63,185,80,.15); box-shadow: 0 0 0 1px rgba(63,185,80,.3); }
+.race-mini-hit:hover { background: rgba(63,185,80,.25); border-color: var(--accent-green); }
 .race-mini-venue   { font-weight: 600; font-size: .75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .race-mini-rno     { font-weight: 800; font-size: .95rem; }
 .race-mini-time    { color: var(--text-muted); font-size: .72rem; }
