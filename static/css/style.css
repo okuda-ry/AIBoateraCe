@@ -199,6 +199,19 @@ body {
 }
 .btn-back:hover { color: var(--text-primary); border-color: var(--accent); }
 
+.btn-predict-now {
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: .875rem;
+  font-weight: 600;
+  padding: .45rem 1rem;
+  cursor: pointer;
+  transition: opacity .15s, transform .15s;
+}
+.btn-predict-now:hover { opacity: .85; transform: translateY(-1px); }
+
 /* ---- 区切り線 ---- */
 .divider { border-color: var(--border); }
 

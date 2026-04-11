@@ -38,9 +38,13 @@ def app(monkeypatch, tmp_path):
     flask_app = Flask(__name__, template_folder="../templates")
     flask_app.secret_key = "test"
 
-    # base.html の url_for('index') 用ダミールート
+    # base.html の url_for('index') / race_detail の url_for('predict') 用ダミールート
     @flask_app.route("/")
     def index():
+        return "ok"
+
+    @flask_app.route("/predict", methods=["POST"])
+    def predict():
         return "ok"
 
     flask_app.register_blueprint(mon.monitor_bp)
@@ -82,6 +86,10 @@ class TestDashboard:
 
         @flask_app.route("/")
         def index():
+            return "ok"
+
+        @flask_app.route("/predict", methods=["POST"])
+        def predict():
             return "ok"
 
         flask_app.register_blueprint(mon.monitor_bp)

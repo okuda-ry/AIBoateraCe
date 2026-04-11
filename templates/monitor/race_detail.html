@@ -18,9 +18,25 @@
       <h2 class="monitor-page-title mb-0">レース詳細</h2>
     {% endif %}
   </div>
-  <a href="javascript:history.back()" class="btn-back">
-    <i class="bi bi-arrow-left me-1"></i>戻る
-  </a>
+  <div class="d-flex gap-2">
+    {% if race %}
+    <form method="post" action="{{ url_for('predict') }}">
+      <input type="hidden" name="mode"     value="form">
+      <input type="hidden" name="venue"    value="{{ race.jcd }}">
+      <input type="hidden" name="date"     value="{{ race.hd[:4] }}-{{ race.hd[4:6] }}-{{ race.hd[6:8] }}">
+      <input type="hidden" name="race"     value="{{ race.rno }}">
+      <input type="hidden" name="nichiji"  value="1">
+      <input type="hidden" name="use_odds" value="1">
+      <input type="hidden" name="budget"   value="1000">
+      <button type="submit" class="btn-predict-now">
+        <i class="bi bi-lightning-fill me-1"></i>今すぐ予測
+      </button>
+    </form>
+    {% endif %}
+    <a href="javascript:history.back()" class="btn-back">
+      <i class="bi bi-arrow-left me-1"></i>戻る
+    </a>
+  </div>
 </div>
 
 {% if not has_db or not race %}
