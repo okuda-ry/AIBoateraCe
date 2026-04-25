@@ -2,7 +2,6 @@
 {% block title %}累積履歴{% endblock %}
 
 {% block content %}
-
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
   <div>
     <h2 class="monitor-page-title mb-0">
@@ -11,7 +10,6 @@
     <div class="text-muted" style="font-size:.85rem">直近 {{ days }} 日間</div>
   </div>
   <div class="d-flex gap-2 align-items-center flex-wrap">
-    <!-- 期間セレクタ -->
     <div class="d-flex gap-1">
       {% for d in [7, 14, 30] %}
         <a href="{{ url_for('monitor.history', days=d) }}"
@@ -34,16 +32,13 @@
   </div>
 {% else %}
 
-<!-- グラフ行 -->
 <div class="row g-3 mb-4">
-  <!-- ROI 折れ線グラフ -->
   <div class="col-lg-6">
     <div class="card-dark p-4">
       <div class="section-title mb-3"><i class="bi bi-percent me-2"></i>日別 ROI</div>
       <canvas id="roiChart" height="220"></canvas>
     </div>
   </div>
-  <!-- 累積損益グラフ -->
   <div class="col-lg-6">
     <div class="card-dark p-4">
       <div class="section-title mb-3"><i class="bi bi-currency-yen me-2"></i>累積損益</div>
@@ -52,7 +47,6 @@
   </div>
 </div>
 
-<!-- 日別テーブル -->
 <div class="card-dark p-4">
   <div class="section-title mb-3"><i class="bi bi-table me-2"></i>日別サマリー</div>
   <div class="table-responsive">
@@ -60,14 +54,24 @@
       <thead>
         <tr>
           <th>日付</th>
-          <th class="text-end">kelly 賭け金</th>
-          <th class="text-end">kelly 損益</th>
-          <th class="text-end">kelly ROI</th>
-          <th class="text-end">kelly 的中</th>
-          <th class="text-end">ip 賭け金</th>
-          <th class="text-end">ip 損益</th>
-          <th class="text-end">ip ROI</th>
-          <th class="text-end">ip 的中</th>
+          {% for strategy in strategy_names %}
+            <th class="text-end strategy-group-start">
+              <span class="strategy-badge strategy-{{ strategy }}">{{ strategy }}</span>
+              <span class="strategy-col-label">賭け金</span>
+            </th>
+            <th class="text-end strategy-group-cell">
+              <span class="strategy-badge strategy-{{ strategy }}">{{ strategy }}</span>
+              <span class="strategy-col-label">損益</span>
+            </th>
+            <th class="text-end strategy-group-cell">
+              <span class="strategy-badge strategy-{{ strategy }}">{{ strategy }}</span>
+              <span class="strategy-col-label">ROI</span>
+            </th>
+            <th class="text-end strategy-group-cell">
+              <span class="strategy-badge strategy-{{ strategy }}">{{ strategy }}</span>
+              <span class="strategy-col-label">的中</span>
+            </th>
+          {% endfor %}
         </tr>
       </thead>
       <tbody>
@@ -78,14 +82,19 @@
               {{ d.hd_display }}
             </a>
           </td>
-          <td class="text-end font-mono">{{ "{:,}".format(d.kelly_bet) }}</td>
-          <td class="text-end font-mono {{ profit_class(d.kelly_profit) }}">{{ "{:+,}".format(d.kelly_profit) }}</td>
-          <td class="text-end font-mono {{ profit_class(d.kelly_roi - 100) }}">{{ "%.1f"|format(d.kelly_roi) }}%</td>
-          <td class="text-end">{{ d.kelly_hit }}</td>
-          <td class="text-end font-mono">{{ "{:,}".format(d.ip_bet) }}</td>
-          <td class="text-end font-mono {{ profit_class(d.ip_profit) }}">{{ "{:+,}".format(d.ip_profit) }}</td>
-          <td class="text-end font-mono {{ profit_class(d.ip_roi - 100) }}">{{ "%.1f"|format(d.ip_roi) }}%</td>
-          <td class="text-end">{{ d.ip_hit }}</td>
+          {% for strategy in strategy_names %}
+            {% set s = d.strategies[strategy] %}
+            <td class="text-end font-mono strategy-group-start strategy-cell-{{ strategy }}">{{ "{:,}".format(s.total_bet) if s.total_bet else "—" }}</td>
+            <td class="text-end font-mono strategy-group-cell strategy-cell-{{ strategy }} {{ profit_class(s.profit) }}">
+              {% if s.total_bet %}{{ "{:+,}".format(s.profit) }}{% else %}—{% endif %}
+            </td>
+            <td class="text-end font-mono strategy-group-cell strategy-cell-{{ strategy }} {{ profit_class(s.roi - 100) }}">
+              {% if s.total_bet %}{{ "%.1f"|format(s.roi) }}%{% else %}—{% endif %}
+            </td>
+            <td class="text-end strategy-group-cell strategy-cell-{{ strategy }}">
+              {% if s.total_bet %}{{ s.hit }} / {{ s.races_bet }}{% else %}—{% endif %}
+            </td>
+          {% endfor %}
         </tr>
         {% endfor %}
       </tbody>
@@ -100,98 +109,57 @@
 {% if daily_rows %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <script>
-  const labels     = {{ chart_labels | tojson }};
-  const kellyRoi   = {{ chart_kelly_roi | tojson }};
-  const ipRoi      = {{ chart_ip_roi | tojson }};
-  const kellyCum   = {{ chart_kelly_cum | tojson }};
-  const ipCum      = {{ chart_ip_cum | tojson }};
+  const labels = {{ chart_labels | tojson }};
+  const strategyNames = {{ strategy_names | tojson }};
+  const chartRoi = {{ chart_roi | tojson }};
+  const chartCum = {{ chart_cum | tojson }};
+  const palette = ['#58a6ff', '#3fb950', '#ff8a3d', '#f7b23b', '#ec1f3f', '#5cb7ff', '#c9c9c9'];
 
-  const gridColor  = 'rgba(48,54,61,.6)';
-  const tickColor  = '#7d8590';
-
+  const gridColor = 'rgba(48,54,61,.6)';
+  const tickColor = '#7d8590';
   const commonScales = {
     x: { ticks: { color: tickColor, font: { size: 11 } }, grid: { color: gridColor } },
     y: { ticks: { color: tickColor, font: { size: 11 } }, grid: { color: gridColor } },
   };
 
-  // ROI グラフ
+  const roiDatasets = strategyNames.map((name, i) => ({
+    label: `${name} ROI (%)`,
+    data: chartRoi[name],
+    borderColor: palette[i % palette.length],
+    backgroundColor: `${palette[i % palette.length]}22`,
+    borderWidth: 2,
+    pointRadius: 3,
+    tension: .3,
+    fill: false,
+  }));
+
+  const cumDatasets = strategyNames.map((name, i) => ({
+    label: `${name} 累積損益`,
+    data: chartCum[name],
+    borderColor: palette[i % palette.length],
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    pointRadius: 3,
+    tension: .3,
+    fill: false,
+  }));
+
   new Chart(document.getElementById('roiChart'), {
     type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'kelly ROI (%)',
-          data: kellyRoi,
-          borderColor: '#58a6ff',
-          backgroundColor: 'rgba(88,166,255,.1)',
-          borderWidth: 2,
-          pointRadius: 3,
-          tension: .3,
-          fill: false,
-        },
-        {
-          label: 'ip ROI (%)',
-          data: ipRoi,
-          borderColor: '#3fb950',
-          backgroundColor: 'rgba(63,185,80,.1)',
-          borderWidth: 2,
-          pointRadius: 3,
-          tension: .3,
-          fill: false,
-        },
-      ],
-    },
+    data: { labels, datasets: roiDatasets },
     options: {
       responsive: true,
-      plugins: {
-        legend: { labels: { color: '#c9d1d9', font: { size: 12 } } },
-        tooltip: { mode: 'index', intersect: false },
-        annotation: {
-          annotations: [{
-            type: 'line', yMin: 100, yMax: 100,
-            borderColor: 'rgba(248,81,73,.5)', borderWidth: 1, borderDash: [4, 4],
-          }]
-        }
-      },
+      plugins: { legend: { labels: { color: '#c9d1d9', font: { size: 12 } } }, tooltip: { mode: 'index', intersect: false } },
       scales: commonScales,
     },
   });
 
-  // 累積損益グラフ
   new Chart(document.getElementById('cumChart'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'kelly 累積損益 (円)',
-          data: kellyCum,
-          backgroundColor: kellyCum.map(v => v >= 0 ? 'rgba(88,166,255,.6)' : 'rgba(248,81,73,.5)'),
-          borderColor:      kellyCum.map(v => v >= 0 ? '#58a6ff' : '#f85149'),
-          borderWidth: 1,
-          borderRadius: 3,
-          order: 2,
-        },
-        {
-          label: 'ip 累積損益 (円)',
-          data: ipCum,
-          type: 'line',
-          borderColor: '#3fb950',
-          backgroundColor: 'transparent',
-          borderWidth: 2,
-          pointRadius: 3,
-          tension: .3,
-          order: 1,
-        },
-      ],
-    },
+    type: 'line',
+    data: { labels, datasets: cumDatasets },
     options: {
       responsive: true,
-      plugins: {
-        legend: { labels: { color: '#c9d1d9', font: { size: 12 } } },
-        tooltip: { mode: 'index', intersect: false },
-      },
+      plugins: { legend: { labels: { color: '#c9d1d9', font: { size: 12 } } }, tooltip: { mode: 'index', intersect: false } },
       scales: commonScales,
     },
   });

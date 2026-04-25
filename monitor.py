@@ -291,10 +291,9 @@ def history():
     has_db = DB_PATH.exists()
     daily_rows = []
     chart_labels = []
-    chart_kelly_roi = []
-    chart_ip_roi = []
-    chart_kelly_cum = []
-    chart_ip_cum = []
+    strategy_names = []
+    chart_roi = {}
+    chart_cum = {}
 
     if has_db:
         con = _conn()
@@ -322,54 +321,59 @@ def history():
         from collections import defaultdict
         day_map: dict = defaultdict(dict)
         all_hds = set()
+        all_strategies = set()
         for row in rows:
             day_map[row["hd"]][row["strategy"]] = dict(row)
             all_hds.add(row["hd"])
+            all_strategies.add(row["strategy"])
+
+        preferred_order = [
+            "kelly", "ip", "strict_flat", "true_kelly_cap",
+            "dutch_value", "ip_conservative",
+        ]
+        strategy_names = [s for s in preferred_order if s in all_strategies]
+        strategy_names.extend(sorted(all_strategies - set(strategy_names)))
 
         for hd in sorted(all_hds):
-            kelly = day_map[hd].get("kelly", {})
-            ip    = day_map[hd].get("ip", {})
-
-            kb = kelly.get("total_bet", 0)
-            kr = kelly.get("total_return", 0)
-            ib = ip.get("total_bet", 0)
-            ir = ip.get("total_return", 0)
-
+            strategies = {}
+            for strategy in strategy_names:
+                row = day_map[hd].get(strategy, {})
+                total_bet = row.get("total_bet", 0)
+                total_return = row.get("total_return", 0)
+                strategies[strategy] = {
+                    "total_bet": total_bet,
+                    "total_return": total_return,
+                    "profit": total_return - total_bet,
+                    "roi": round(total_return / total_bet * 100 if total_bet else 0, 1),
+                    "hit": row.get("hit_count", 0),
+                    "races_bet": row.get("races_bet", 0),
+                }
             daily_rows.append({
-                "hd":          hd,
-                "hd_display":  _hd_display(hd),
-                "kelly_bet":   kb,
-                "kelly_return":kr,
-                "kelly_profit":kr - kb,
-                "kelly_roi":   round(kr / kb * 100 if kb else 0, 1),
-                "kelly_hit":   kelly.get("hit_count", 0),
-                "ip_bet":      ib,
-                "ip_return":   ir,
-                "ip_profit":   ir - ib,
-                "ip_roi":      round(ir / ib * 100 if ib else 0, 1),
-                "ip_hit":      ip.get("hit_count", 0),
+                "hd": hd,
+                "hd_display": _hd_display(hd),
+                "strategies": strategies,
             })
 
         # Chart.js 用データ
-        kelly_cum = ip_cum = 0
+        cumulative = {strategy: 0 for strategy in strategy_names}
+        chart_roi = {strategy: [] for strategy in strategy_names}
+        chart_cum = {strategy: [] for strategy in strategy_names}
         for d in daily_rows:
             chart_labels.append(d["hd_display"])
-            chart_kelly_roi.append(d["kelly_roi"])
-            chart_ip_roi.append(d["ip_roi"])
-            kelly_cum += d["kelly_profit"]
-            ip_cum    += d["ip_profit"]
-            chart_kelly_cum.append(kelly_cum)
-            chart_ip_cum.append(ip_cum)
+            for strategy in strategy_names:
+                stats = d["strategies"][strategy]
+                chart_roi[strategy].append(stats["roi"])
+                cumulative[strategy] += stats["profit"]
+                chart_cum[strategy].append(cumulative[strategy])
 
     return render_template(
         "monitor/history.html",
         days=days,
         daily_rows=daily_rows,
+        strategy_names=strategy_names,
         chart_labels=chart_labels,
-        chart_kelly_roi=chart_kelly_roi,
-        chart_ip_roi=chart_ip_roi,
-        chart_kelly_cum=chart_kelly_cum,
-        chart_ip_cum=chart_ip_cum,
+        chart_roi=chart_roi,
+        chart_cum=chart_cum,
         has_db=has_db,
         profit_class=_profit_class,
     )

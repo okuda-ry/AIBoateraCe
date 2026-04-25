@@ -379,6 +379,7 @@ def strategy_summary(hd: str = None) -> list[dict]:
             "hit_count":    hit,
             "hit_rate_pct": round(hit / rb * 100 if rb > 0 else 0.0, 1),
         })
+    result.sort(key=lambda x: (x["roi_pct"], x["profit"]), reverse=True)
     return result
 
 

@@ -1,23 +1,20 @@
 {% extends "base.html" %}
-{% block title %}モニター — {{ hd_display }}{% endblock %}
+{% block title %}モニター - {{ hd_display }}{% endblock %}
 
 {% block content %}
 <meta http-equiv="refresh" content="60">
 
-<!-- ヘッダー行 -->
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
   <div>
     <h2 class="monitor-page-title mb-0">
       <i class="bi bi-bar-chart-line-fill me-2" style="color:var(--accent)"></i>ドライランモニター
     </h2>
-    <div class="text-muted" style="font-size:.85rem">{{ hd_display }} &nbsp;·&nbsp; 60秒ごとに自動更新</div>
+    <div class="text-muted" style="font-size:.85rem">{{ hd_display }} ・ 60秒ごとに自動更新</div>
   </div>
 
-  <!-- 日付セレクタ -->
   <form method="get" action="{{ url_for('monitor.dashboard') }}">
-    <div class="d-flex gap-2 align-items-center">
-      <select name="hd" class="form-control-custom" style="width:160px"
-              onchange="this.form.submit()">
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      <select name="hd" class="form-control-custom" style="width:160px" onchange="this.form.submit()">
         {% for d in dates %}
           <option value="{{ d }}" {% if d == hd %}selected{% endif %}>
             {{ d[:4] }}/{{ d[4:6] }}/{{ d[6:8] }}
@@ -39,7 +36,7 @@
 
 {% if not has_db %}
   <div class="monitor-empty-card">
-    <div class="monitor-empty-icon">📂</div>
+    <div class="monitor-empty-icon">📭</div>
     <div class="monitor-empty-msg">データが見つかりません</div>
     <div class="text-muted" style="font-size:.875rem">
       <code>python run_auto.py</code> を実行するとデータが記録されます。
@@ -47,7 +44,6 @@
   </div>
 {% else %}
 
-<!-- サマリーカード -->
 {% if summary %}
 <div class="monitor-cards-row mb-4">
   <div class="monitor-card">
@@ -68,10 +64,9 @@
   </div>
 </div>
 
-<!-- 損益カード -->
 <div class="row g-3 mb-4">
   <div class="col-md-6">
-    <div class="card-dark p-4">
+    <div class="card-dark p-4 h-100">
       <div class="section-title mb-3"><i class="bi bi-wallet2 me-2"></i>損益サマリー</div>
       <div class="pnl-grid">
         <div class="pnl-row">
@@ -102,42 +97,62 @@
     </div>
   </div>
 
-  <!-- 戦略比較 -->
   <div class="col-md-6">
-    <div class="card-dark p-4 h-100">
-      <div class="section-title mb-3"><i class="bi bi-diagram-3 me-2"></i>戦略別比較</div>
+    <div class="card-dark p-4 h-100 strategy-compare-panel">
+      <div class="strategy-compare-head">
+        <div>
+          <div class="section-title mb-1"><i class="bi bi-diagram-3 me-2"></i>戦略別比較</div>
+          <div class="strategy-compare-sub">ROI・損益・投資量を同じ尺度で比較</div>
+        </div>
+        {% if strategies %}
+          <span class="strategy-count">{{ strategies|length }} strategies</span>
+        {% endif %}
+      </div>
+
       {% if strategies %}
-        <table class="monitor-table w-100">
-          <thead>
-            <tr>
-              <th>戦略</th>
-              <th class="text-end">賭け金</th>
-              <th class="text-end">損益</th>
-              <th class="text-end">ROI</th>
-              <th class="text-end">的中</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for s in strategies %}
-            <tr>
-              <td><span class="strategy-badge strategy-{{ s.strategy }}">{{ s.strategy }}</span></td>
-              <td class="text-end font-mono">{{ "{:,}".format(s.total_bet) }}</td>
-              <td class="text-end font-mono {{ profit_class(s.profit) }}">{{ "{:+,}".format(s.profit) }}</td>
-              <td class="text-end font-mono {{ profit_class(s.roi_pct - 100) }}">{{ "%.1f"|format(s.roi_pct) }}%</td>
-              <td class="text-end">{{ s.hit_count }}({{ "%.0f"|format(s.hit_rate_pct) }}%)</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        <div class="strategy-card-grid">
+          {% for s in strategies %}
+            {% set roi_delta = s.roi_pct - 100 %}
+            {% set exposure = ((s.total_bet / summary.total_bet * 100) if summary and summary.total_bet else 0) %}
+            <div class="strategy-card {% if s.profit > 0 %}is-profit{% elif s.profit < 0 %}is-loss{% endif %}">
+              <div class="strategy-card-top">
+                <div class="strategy-name-wrap">
+                  <span class="strategy-rank">#{{ loop.index }}</span>
+                  <span class="strategy-badge strategy-{{ s.strategy }}">{{ s.strategy }}</span>
+                </div>
+                <span class="strategy-roi {{ profit_class(roi_delta) }}">{{ "%.1f"|format(s.roi_pct) }}%</span>
+              </div>
+
+              <div class="strategy-profit {{ profit_class(s.profit) }}">
+                {{ "{:+,}".format(s.profit) }}<small>円</small>
+              </div>
+
+              <div class="strategy-metrics">
+                <div><span>賭け金</span><b>{{ "{:,}".format(s.total_bet) }}</b></div>
+                <div><span>的中</span><b>{{ s.hit_count }} / {{ s.races_bet }}</b></div>
+                <div><span>Hit</span><b>{{ "%.1f"|format(s.hit_rate_pct) }}%</b></div>
+              </div>
+
+              <div class="strategy-exposure">
+                <div class="strategy-exposure-head">
+                  <span>投資シェア</span>
+                  <b>{{ "%.0f"|format(exposure) }}%</b>
+                </div>
+                <div class="strategy-exposure-bar">
+                  <span style="width:{{ [exposure, 100] | min }}%"></span>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
       {% else %}
-        <div class="text-muted" style="font-size:.875rem">結果確定したレースがまだありません。</div>
+        <div class="text-muted" style="font-size:.875rem">結果確定済みのレースがまだありません。</div>
       {% endif %}
     </div>
   </div>
 </div>
 {% endif %}
 
-<!-- レース一覧（当日） -->
 <div class="card-dark p-4">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <div class="section-title"><i class="bi bi-list-check me-2"></i>レース状況</div>
@@ -161,7 +176,7 @@
           {% elif r.predicted_at %}
             <div class="race-mini-skip-lbl">見送り</div>
           {% else %}
-            <div class="race-mini-skip-lbl">–</div>
+            <div class="race-mini-skip-lbl">—</div>
           {% endif %}
         </a>
       {% endfor %}

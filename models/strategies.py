@@ -55,6 +55,36 @@ def _round_bets(amounts: np.ndarray, min_bet: int, budget: int) -> dict:
     return {COMBO_STRS[i]: int(amounts[i]) for i in range(120) if amounts[i] >= min_bet}
 
 
+def _top_edge_candidates(
+    probs: np.ndarray,
+    odds_arr: np.ndarray,
+    min_edge: float,
+    top_n: int,
+    min_odds: float = 1.0,
+    max_odds: float | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return candidate indexes and EV values after rank, edge, and odds filters."""
+    top_idx = np.argsort(-probs)[:top_n]
+    top_mask = np.zeros(120, dtype=bool)
+    top_mask[top_idx] = True
+
+    ev = probs * odds_arr - 1.0
+    mask = top_mask & (ev >= min_edge) & (odds_arr >= min_odds)
+    if max_odds is not None:
+        mask &= odds_arr <= max_odds
+    return np.where(mask)[0], ev
+
+
+def _kelly_fractions(probs: np.ndarray, odds_arr: np.ndarray, candidates: np.ndarray) -> np.ndarray:
+    """Full Kelly fractions for selected candidates, zero elsewhere."""
+    kelly_f = np.zeros(120)
+    if len(candidates) == 0:
+        return kelly_f
+    b = np.maximum(odds_arr[candidates] - 1.0, 1e-9)
+    kelly_f[candidates] = probs[candidates] - (1.0 - probs[candidates]) / b
+    return np.maximum(kelly_f, 0.0)
+
+
 # -------------------------------------------------------
 # 戦略1: Kelly 規準
 # -------------------------------------------------------
@@ -183,6 +213,142 @@ def allocate_ip(
 # 戦略3: ベイズ最適化パラメータ（Optuna）
 # -------------------------------------------------------
 
+def allocate_strict_flat(
+    probs: np.ndarray,
+    odds_dict: dict,
+    budget: int     = 1000,
+    min_edge: float = 0.20,
+    min_bet: int    = 100,
+    top_n: int      = 5,
+    max_combos: int = 3,
+    min_odds: float = 3.0,
+    max_odds: float = 80.0,
+    **_,
+) -> dict:
+    """Conservative baseline: a few high-probability, high-edge combos at flat stakes."""
+    min_edge = max(min_edge, 0.20)
+    odds_arr = _odds_array(odds_dict)
+    candidates, ev = _top_edge_candidates(
+        probs, odds_arr, min_edge=min_edge, top_n=top_n,
+        min_odds=min_odds, max_odds=max_odds,
+    )
+    if len(candidates) == 0:
+        return {}
+
+    selected = candidates[np.argsort(-ev[candidates])[:max_combos]]
+    affordable = min(int(budget // min_bet), len(selected))
+    return {COMBO_STRS[i]: min_bet for i in selected[:affordable]}
+
+
+def allocate_true_kelly_cap(
+    probs: np.ndarray,
+    odds_dict: dict,
+    budget: int       = 1000,
+    min_edge: float   = 0.15,
+    kelly_frac: float = 0.25,
+    min_bet: int      = 100,
+    top_n: int        = 8,
+    max_combos: int   = 4,
+    race_cap: int | None = None,
+    combo_cap: int | None = None,
+    min_odds: float   = 2.5,
+    max_odds: float   = 100.0,
+    **_,
+) -> dict:
+    """True fractional Kelly with exposure caps. It does not spend the full budget."""
+    min_edge = max(min_edge, 0.15)
+    odds_arr = _odds_array(odds_dict)
+    candidates, _ = _top_edge_candidates(
+        probs, odds_arr, min_edge=min_edge, top_n=top_n,
+        min_odds=min_odds, max_odds=max_odds,
+    )
+    if len(candidates) == 0:
+        return {}
+
+    kelly_f = _kelly_fractions(probs, odds_arr, candidates) * kelly_frac
+    selected = np.array([i for i in np.argsort(-kelly_f)[:max_combos] if kelly_f[i] > 0])
+    if len(selected) == 0:
+        return {}
+
+    stake_budget = min(budget, race_cap if race_cap is not None else max(min_bet, int(budget * 0.30)))
+    per_combo_cap = combo_cap if combo_cap is not None else max(min_bet, int(budget * 0.20))
+
+    amounts = np.zeros(120)
+    for i in selected:
+        amounts[i] = min(budget * kelly_f[i], per_combo_cap)
+
+    total = amounts.sum()
+    if total > stake_budget:
+        amounts *= stake_budget / total
+
+    return _round_bets(amounts, min_bet, stake_budget)
+
+
+def allocate_dutch_value(
+    probs: np.ndarray,
+    odds_dict: dict,
+    budget: int     = 1000,
+    min_edge: float = 0.10,
+    min_bet: int    = 100,
+    top_n: int      = 8,
+    max_combos: int = 4,
+    race_cap: int | None = None,
+    min_odds: float = 2.5,
+    max_odds: float = 80.0,
+    **_,
+) -> dict:
+    """Dutch value candidates so selected outcomes have roughly balanced payouts."""
+    min_edge = max(min_edge, 0.10)
+    odds_arr = _odds_array(odds_dict)
+    candidates, ev = _top_edge_candidates(
+        probs, odds_arr, min_edge=min_edge, top_n=top_n,
+        min_odds=min_odds, max_odds=max_odds,
+    )
+    if len(candidates) == 0:
+        return {}
+
+    selected = candidates[np.argsort(-ev[candidates])[:max_combos]]
+    stake_budget = min(budget, race_cap if race_cap is not None else max(min_bet, int(budget * 0.50)))
+    weights = 1.0 / odds_arr[selected]
+    weights = weights / weights.sum()
+
+    amounts = np.zeros(120)
+    amounts[selected] = stake_budget * weights
+    return _round_bets(amounts, min_bet, stake_budget)
+
+
+def allocate_ip_conservative(
+    probs: np.ndarray,
+    odds_dict: dict,
+    budget: int     = 1000,
+    min_edge: float = 0.25,
+    min_bet: int    = 100,
+    max_combos: int = 3,
+    top_n: int      = 8,
+    race_cap: int | None = None,
+    min_odds: float = 2.5,
+    max_odds: float = 80.0,
+    **_,
+) -> dict:
+    """Conservative IP-style allocator with stricter filters and capped exposure."""
+    min_edge = max(min_edge, 0.25)
+    odds_arr = _odds_array(odds_dict)
+    candidates, ev = _top_edge_candidates(
+        probs, odds_arr, min_edge=min_edge, top_n=top_n,
+        min_odds=min_odds, max_odds=max_odds,
+    )
+    if len(candidates) == 0:
+        return {}
+
+    selected = candidates[np.argsort(-ev[candidates])[:max_combos]]
+    stake_budget = min(budget, race_cap if race_cap is not None else max(min_bet, int(budget * 0.50)))
+    weights = ev[selected] / ev[selected].sum()
+
+    amounts = np.zeros(120)
+    amounts[selected] = stake_budget * weights
+    return _round_bets(amounts, min_bet, stake_budget)
+
+
 def build_bayes_strategy(
     history: list[dict],
     n_trials: int   = 50,
@@ -279,8 +445,12 @@ def build_bayes_strategy(
 # 全戦略の名前と allocate 関数のマッピング
 # orchestrator から参照する
 STRATEGIES: dict[str, Callable] = {
-    "kelly": allocate_kelly,
-    "ip":    allocate_ip,
+    "kelly":           allocate_kelly,
+    "ip":              allocate_ip,
+    "strict_flat":     allocate_strict_flat,
+    "true_kelly_cap":  allocate_true_kelly_cap,
+    "dutch_value":     allocate_dutch_value,
+    "ip_conservative": allocate_ip_conservative,
     # "bayes" は build_bayes_strategy() で動的に生成して追加する
 }
 

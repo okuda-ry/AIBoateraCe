@@ -271,12 +271,13 @@ def value_bet_allocate(probs: np.ndarray,
                        budget: int   = 1000,
                        min_edge: float = 0.05,
                        kelly_frac: float = 0.25,
-                       min_bet: int  = 100) -> dict:
+                       min_bet: int  = 100,
+                       max_combos: int | None = None) -> dict:
     """
     期待値が正の組み合わせにのみ賭けるバリューベッティング。
 
     EV = prob × odds - 1  (odds は払戻倍率、例: 18.5)
-    EV > min_edge のものだけ購入対象とし、Kelly 規準で配分する。
+    EV > min_edge のものだけ購入対象とし、Fractional Kelly の強さで配分する。
 
     Parameters
     ----------
@@ -313,16 +314,25 @@ def value_bet_allocate(probs: np.ndarray,
     if kelly_f.sum() == 0:
         return {}
 
-    # 合計 Kelly が 1 超なら正規化（過剰な賭けを防ぐ）
-    if kelly_f.sum() > 1.0:
-        kelly_f = kelly_f / kelly_f.sum()
+    if max_combos is not None and max_combos > 0:
+        selected = np.argsort(-kelly_f)[:max_combos]
+        keep = np.zeros(120, dtype=bool)
+        keep[selected] = True
+        kelly_f = np.where(keep, kelly_f, 0.0)
 
-    raw     = budget * kelly_f
+    if kelly_f.sum() == 0:
+        return {}
+
+    # 3連単は確率が小さく、素の Kelly 量だと100円単位に丸める前に消えやすい。
+    # ここでは Kelly を「候補の強さ」として使い、買うと決めた候補へ予算を配分する。
+    weights = kelly_f / kelly_f.sum()
+
+    raw     = budget * weights
     amounts = (raw / min_bet).round() * min_bet
     amounts = np.maximum(amounts, 0.0)
 
     # 予算超過を Kelly 配分の小さい順に削る
-    for i in np.argsort(kelly_f):
+    for i in np.argsort(weights):
         if amounts.sum() <= budget:
             break
         if amounts[i] >= min_bet:

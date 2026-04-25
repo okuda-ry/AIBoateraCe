@@ -10,6 +10,10 @@ import pytest
 from models.strategies import (
     allocate_kelly,
     allocate_ip,
+    allocate_strict_flat,
+    allocate_true_kelly_cap,
+    allocate_dutch_value,
+    allocate_ip_conservative,
     run_all_strategies,
     COMBO_STRS,
     COMBO_IDX,
@@ -161,6 +165,45 @@ class TestAllocateIP:
 
     def test_each_bet_multiple_of_min_bet(self, biased_probs, biased_odds):
         result = allocate_ip(biased_probs, biased_odds, budget=1000, min_bet=100)
+        for v in result.values():
+            assert v % 100 == 0
+
+
+# -------------------------------------------------------
+# conservative strategies
+# -------------------------------------------------------
+
+class TestConservativeStrategies:
+    @pytest.mark.parametrize("fn", [
+        allocate_strict_flat,
+        allocate_true_kelly_cap,
+        allocate_dutch_value,
+        allocate_ip_conservative,
+    ])
+    def test_returns_dict(self, fn, biased_probs, biased_odds):
+        result = fn(biased_probs, biased_odds, budget=1000)
+        assert isinstance(result, dict)
+
+    @pytest.mark.parametrize("fn", [
+        allocate_strict_flat,
+        allocate_true_kelly_cap,
+        allocate_dutch_value,
+        allocate_ip_conservative,
+    ])
+    def test_no_bets_when_no_edge(self, fn, sample_probs, sample_odds):
+        result = fn(sample_probs, sample_odds, budget=1000)
+        assert result == {}
+
+    @pytest.mark.parametrize("fn", [
+        allocate_strict_flat,
+        allocate_true_kelly_cap,
+        allocate_dutch_value,
+        allocate_ip_conservative,
+    ])
+    def test_bets_are_capped_and_rounded(self, fn, biased_probs, biased_odds):
+        result = fn(biased_probs, biased_odds, budget=1000)
+        assert sum(result.values()) <= 1000
+        assert len(result) <= 4
         for v in result.values():
             assert v % 100 == 0
 

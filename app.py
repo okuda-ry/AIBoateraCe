@@ -81,6 +81,8 @@ def run_prediction(jcd: str, hd: str, rno: int,
                    venue_name: str, nichiji: int,
                    budget: int, use_odds: bool = True,
                    min_edge: float = 0.05,
+                   kelly_frac: float = 0.25,
+                   max_combos: int = 6,
                    debug: bool = False) -> dict:
     """
     スクレイピング → スケーリング → 予測 → 結果辞書を返す。
@@ -143,7 +145,12 @@ def run_prediction(jcd: str, hd: str, rno: int,
         probs_top10 = np.zeros(120)
         probs_top10[top10_idx] = probs_120[top10_idx]
         bets_dict = value_bet_allocate(
-            probs_top10, odds_dict, budget=budget, min_edge=min_edge
+            probs_top10,
+            odds_dict,
+            budget=budget,
+            min_edge=min_edge,
+            kelly_frac=kelly_frac,
+            max_combos=max_combos,
         )
         bet_mode = "value"
     else:
@@ -187,16 +194,30 @@ def run_prediction(jcd: str, hd: str, rno: int,
 
     # ベット一覧
     bets = []
+    expected_return = 0.0
+    expected_profit = 0.0
     for combo, amt in sorted(bets_dict.items(), key=lambda x: -x[1]):
+        combo_idx = COMBO_STRS.index(combo)
         odds = float(odds_dict.get(combo, 0.0))
-        ev   = probs_120[COMBO_STRS.index(combo)] * odds - 1.0 if odds > 0 else None
+        prob = float(probs_120[combo_idx])
+        ev   = prob * odds - 1.0 if odds > 0 else None
+        if ev is not None:
+            expected_return += amt * prob * odds
+            expected_profit += amt * ev
         bets.append({
-            "combo":   combo,
-            "amount":  amt,
-            "bar_pct": round(amt / budget * 100),
-            "odds":    round(odds, 1) if odds > 0 else None,
-            "ev_pct":  round(ev * 100, 1) if ev is not None else None,
+            "combo":    combo,
+            "amount":   amt,
+            "bar_pct":  round(amt / budget * 100),
+            "prob_pct": round(prob * 100, 2),
+            "odds":     round(odds, 1) if odds > 0 else None,
+            "ev_pct":   round(ev * 100, 1) if ev is not None else None,
         })
+
+    primary_combo = bets[0]["combo"] if bets else (trifecta[0]["combo"] if trifecta else "—")
+    primary_idx = COMBO_STRS.index(primary_combo) if primary_combo in COMBO_STRS else None
+    primary_odds = float(odds_dict.get(primary_combo, 0.0)) if primary_idx is not None else 0.0
+    primary_prob = float(probs_120[primary_idx]) if primary_idx is not None else 0.0
+    primary_ev = primary_prob * primary_odds - 1.0 if primary_odds > 0 else None
 
     # 日付フォーマット
     date_fmt = f"{hd[:4]}年{int(hd[4:6])}月{int(hd[6:8])}日" if len(hd) == 8 else hd
@@ -218,12 +239,24 @@ def run_prediction(jcd: str, hd: str, rno: int,
         "bets":        bets,
         "budget":      budget,
         "total_bet":   total_bet,
+        "unused_budget": budget - total_bet,
+        "budget_used_pct": round(total_bet / budget * 100) if budget > 0 else 0,
+        "expected_return": round(expected_return),
+        "expected_profit": round(expected_profit),
+        "expected_roi_pct": round(expected_profit / total_bet * 100, 1) if total_bet > 0 else None,
         "confidence":  round(confidence * 100, 1),
         "conf_label":  conf_label,
         "top_combo":      trifecta[0]["combo"] if trifecta else "—",
+        "primary_combo":  primary_combo,
+        "primary_prob_pct": round(primary_prob * 100, 2),
+        "primary_odds":  round(primary_odds, 1) if primary_odds > 0 else None,
+        "primary_ev_pct": round(primary_ev * 100, 1) if primary_ev is not None else None,
         "has_beforeinfo": has_beforeinfo,
         "has_odds":       bool(odds_dict),
         "bet_mode":       bet_mode,
+        "min_edge_pct":   round(min_edge * 100, 1),
+        "kelly_frac_pct": round(kelly_frac * 100, 1),
+        "max_combos":     max_combos,
         "ev_table":       ev_table[:20],   # EV上位20通りをテンプレートに渡す
         # orchestrator が複数戦略を走らせるために使う内部データ
         "_probs_120":     probs_120,
@@ -271,10 +304,16 @@ def predict():
         nichiji    = int(request.form.get("nichiji", 1))
         use_odds   = request.form.get("use_odds", "1") != "0"
         min_edge   = float(request.form.get("min_edge", "0.05"))
+        kelly_frac = float(request.form.get("kelly_frac", "0.25"))
+        max_combos = int(request.form.get("max_combos", "6"))
 
         result = run_prediction(
             jcd, hd, rno, venue_name, nichiji, budget,
-            use_odds=use_odds, min_edge=min_edge, debug=debug
+            use_odds=use_odds,
+            min_edge=min_edge,
+            kelly_frac=kelly_frac,
+            max_combos=max_combos,
+            debug=debug,
         )
         return render_template("result.html", r=result)
 

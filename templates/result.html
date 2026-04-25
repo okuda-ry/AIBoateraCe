@@ -1,295 +1,245 @@
 {% extends "base.html" %}
-{% block title %}{{ r.race.venue }} {{ r.race.race_num }}R 予測結果{% endblock %}
+{% block title %}{{ r.race.venue }} {{ r.race.race_num }}R - Result{% endblock %}
+
+{% macro combo_chips(combo, size='xs') -%}
+  <span class="combo-cell">
+    {%- for lane in combo.split('-') -%}
+      <span class="lane-chip {{ size }} l{{ lane }}">{{ lane }}</span>
+    {%- endfor -%}
+  </span>
+{%- endmacro %}
 
 {% block content %}
-
-<!-- レースヘッダー -->
-<div class="race-header mb-4">
-  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-    <div>
-      <h2 class="race-title mb-1">
-        <span class="venue-badge">{{ r.race.venue }}</span>
-        <span class="race-num-badge">{{ r.race.race_num }}R</span>
-      </h2>
+<section class="page active">
+  <div class="race-header">
+    <div class="race-id">
+      <div class="race-venue">{{ r.race.venue }}</div>
       <div class="race-meta">
-        <span><i class="bi bi-calendar3 me-1"></i>{{ r.race.date }}</span>
-        <span class="ms-3"><i class="bi bi-water me-1"></i>{{ r.race.distance }}m</span>
+        <div class="race-num">{{ r.race.race_num }}R <span class="muted">3連単予測</span></div>
+        <div class="race-sub">{{ r.race.date }} ・ {{ r.race.distance }}m</div>
       </div>
     </div>
-    <div class="weather-box">
-      <div class="weather-item">
-        <span class="weather-icon">🌤</span>
-        <span>{{ r.race.weather }}</span>
-      </div>
-      <div class="weather-item">
-        <span class="weather-icon">💨</span>
-        <span>{{ r.race.wind_dir }} {{ r.race.wind_speed }}m</span>
-      </div>
-      <div class="weather-item">
-        <span class="weather-icon">🌊</span>
-        <span>波 {{ r.race.wave_height }}cm</span>
-      </div>
+    <div class="weather">
+      <div class="weather-i">天候 <b>{{ r.race.weather }}</b></div>
+      <div class="weather-i">風 <b>{{ r.race.wind_dir }} {{ r.race.wind_speed }}m</b></div>
+      <div class="weather-i">波 <b>{{ r.race.wave_height }}cm</b></div>
     </div>
   </div>
-</div>
 
-<!-- 直前情報ステータス -->
-{% if not r.has_beforeinfo %}
-<div class="alert-beforeinfo mb-3">
-  <i class="bi bi-clock me-2"></i>
-  <strong>直前情報（展示タイム）未取得</strong> —
-  スタート展示前のため、出走表データのみで予測しています。
-  展示後に再度予測すると精度が向上します。
-</div>
-{% endif %}
-
-<!-- オッズ取得ステータス -->
-{% if r.has_odds %}
-<div class="alert-odds-ok mb-3">
-  <i class="bi bi-graph-up-arrow me-2"></i>
-  <strong>リアルタイムオッズ取得済み</strong> —
-  {% if r.bet_mode == "value" %}
-    期待値プラスの組み合わせのみ <strong>バリューベット</strong> で配分しています。
-  {% else %}
-    オッズは表示に使用。ベットは比例配分で行っています。
+  {% if not r.has_beforeinfo %}
+    <div class="banner warn">
+      <i class="bi bi-clock"></i>
+      <span><b>直前情報未取得</b> ・ 展示前のため出走表ベースで予測しています。</span>
+    </div>
   {% endif %}
-</div>
-{% else %}
-<div class="alert-odds-na mb-3">
-  <i class="bi bi-exclamation-circle me-2"></i>
-  <strong>オッズ未取得</strong> —
-  締切前でない / 受付前の可能性があります。確率に基づく比例配分を使用しています。
-</div>
-{% endif %}
 
-<!-- 信頼度バナー -->
-<div class="confidence-banner mb-4
-  {% if r.confidence >= 35 %}confidence-high
-  {% elif r.confidence >= 25 %}confidence-mid
-  {% else %}confidence-low{% endif %}">
-  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-    <div>
-      <span class="conf-label">予測信頼度</span>
-      <span class="conf-value">{{ r.confidence }}%</span>
-      <span class="conf-badge">{{ r.conf_label }}</span>
-    </div>
-    <div class="conf-top">
-      推奨 3連単 <strong class="ms-2 combo-highlight">{{ r.top_combo }}</strong>
-    </div>
+  <div class="banner {% if r.has_odds %}ok{% else %}warn{% endif %}">
+    <i class="bi {% if r.has_odds %}bi-graph-up-arrow{% else %}bi-exclamation-circle{% endif %}"></i>
+    <span>
+      {% if r.has_odds %}
+        <b>リアルタイムオッズ取得済み</b> ・ EV {{ r.min_edge_pct }}% 以上を {{ r.kelly_frac_pct }}% Kelly、最大 {{ r.max_combos }} 点で配分。
+      {% else %}
+        <b>オッズ未取得</b> ・ 確率ベースの比例配分を表示しています。
+      {% endif %}
+    </span>
   </div>
-  <div class="conf-bar mt-2">
-    <div class="conf-bar-fill" style="width: {{ [r.confidence, 100] | min }}%"></div>
-  </div>
-</div>
 
-<div class="row g-4">
+  <div class="result-top">
+    <div class="conclusion">
+      <div class="c-eyebrow"><span class="livewave"></span>AI Recommendation</div>
+      <div class="c-combo">{{ combo_chips(r.primary_combo, 'lg') }}</div>
+      <div class="muted small-caps">
+        {% if r.primary_ev_pct is not none %}
+          Expected Value <span class="{% if r.primary_ev_pct > 0 %}ev-pos{% else %}ev-neg{% endif %}">
+            {% if r.primary_ev_pct > 0 %}+{% endif %}{{ r.primary_ev_pct }}%
+          </span>
+        {% else %}
+          Probability leader
+        {% endif %}
+      </div>
 
-  <!-- 左カラム: 艇別予測 -->
-  <div class="col-lg-7">
-    <div class="card-dark p-4">
-      <h5 class="section-title mb-3"><i class="bi bi-bar-chart-fill me-2"></i>艇別スコア</h5>
-      <div class="boat-table-wrapper">
-        <table class="boat-table w-100">
-          <thead>
-            <tr>
-              <th>枠</th>
-              <th>選手</th>
-              <th>スコア</th>
-              <th>1着確率</th>
-              <th>予測</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for b in r.boats %}
-            <tr class="boat-row {% if b.pred_rank == 1 %}boat-row-top{% endif %}">
-              <td>
-                <span class="lane-badge" style="background:{{ b.bg }}; color:{{ b.text }};">
-                  {{ b.lane }}
-                </span>
-              </td>
-              <td class="boat-name">{{ b.name if b.name else b.lane ~ '号艇' }}</td>
-              <td class="score-cell">{{ b.score }}</td>
-              <td>
-                <div class="prob-bar-wrap">
-                  <div class="prob-bar-bg">
-                    <div class="prob-bar-fill" style="width:{{ b.prob_pct }}%; background:{{ b.bg if b.bg != '#FFFFFF' else '#90caf9' }};"></div>
-                  </div>
-                  <span class="prob-label">{{ b.prob_pct }}%</span>
-                </div>
-              </td>
-              <td>
-                {% if b.pred_rank == 1 %}
-                  <span class="rank-medal gold">1着</span>
-                {% elif b.pred_rank == 2 %}
-                  <span class="rank-medal silver">2着</span>
-                {% elif b.pred_rank == 3 %}
-                  <span class="rank-medal bronze">3着</span>
-                {% else %}
-                  <span class="rank-other">{{ b.pred_rank }}着</span>
-                {% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="c-meta">
+        <div class="c-prob">
+          <div class="v">{{ r.primary_prob_pct }}<small>%</small></div>
+          <div class="l">モデル確率</div>
+        </div>
+        <div class="c-prob">
+          <div class="v">{% if r.primary_odds %}{{ r.primary_odds }}<small>x</small>{% else %}-{% endif %}</div>
+          <div class="l">現在オッズ</div>
+        </div>
+        <div class="c-confidence">
+          <div class="c-conf-head"><span>1着信頼度</span><b>{{ r.confidence }} / 100</b></div>
+          <div class="conf-bar"><div class="conf-bar-fill" style="width:{{ [r.confidence, 100] | min }}%"></div></div>
+          <div class="mt-2">
+            <span class="c-verdict {% if r.confidence < 25 %}low{% elif r.confidence < 35 %}mid{% endif %}">
+              Confidence {{ r.conf_label }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bet-summary">
+      <div class="bs-head">
+        <div class="bs-title">推奨ベット配分</div>
+        <span class="bs-tag">{% if r.bet_mode == "value" %}Value Bet{% else %}Probability{% endif %}</span>
+      </div>
+      <div class="bs-nums">
+        <div>
+          <div class="bs-n-lbl">予算</div>
+          <div class="bs-n-val num">¥{{ "{:,}".format(r.budget) }}</div>
+        </div>
+        <div>
+          <div class="bs-n-lbl">使用額</div>
+          <div class="bs-n-val num {% if r.total_bet > 0 %}positive{% endif %}">¥{{ "{:,}".format(r.total_bet) }}</div>
+        </div>
+      </div>
+      <div class="bs-donut">
+        <div class="donut">
+          <svg viewBox="0 0 40 40">
+            <circle cx="20" cy="20" r="16" fill="none" stroke="var(--bg-3)" stroke-width="5"/>
+            <circle cx="20" cy="20" r="16" fill="none" stroke="url(#dgrad)" stroke-width="5" stroke-linecap="round"
+                    stroke-dasharray="{{ r.budget_used_pct }} 100" pathLength="100"/>
+            <defs><linearGradient id="dgrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff5b2e"/><stop offset="1" stop-color="#ec1f3f"/></linearGradient></defs>
+          </svg>
+          <div class="dv">{{ r.budget_used_pct }}%</div>
+        </div>
+        <div class="donut-lbl">
+          <b>{% if r.bets %}{{ r.bets|length }} 点を購入候補{% else %}見送り推奨{% endif %}</b>
+          残り ¥{{ "{:,}".format(r.unused_budget) }}。期待値が足りない資金は無理に使いません。
+        </div>
+      </div>
+      <div class="summary-grid">
+        <div>
+          <div class="bs-n-lbl">期待回収</div>
+          <div class="num positive">¥{{ "{:,}".format(r.expected_return) }}</div>
+        </div>
+        <div>
+          <div class="bs-n-lbl">期待ROI</div>
+          <div class="num {% if r.expected_roi_pct and r.expected_roi_pct > 0 %}positive{% endif %}">
+            {% if r.expected_roi_pct is not none %}{% if r.expected_roi_pct > 0 %}+{% endif %}{{ r.expected_roi_pct }}%{% else %}-{% endif %}
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- 右カラム: 3連単予測 -->
-  <div class="col-lg-5">
-    <div class="card-dark p-4 h-100">
-      <h5 class="section-title mb-3"><i class="bi bi-trophy-fill me-2"></i>3連単 上位予測</h5>
-      <table class="trifecta-table w-100">
+  <div class="result-main">
+    <div class="card">
+      <div class="section-head">
+        <div class="section-title"><span class="tick"></span>艇別スコア</div>
+        <div class="section-aside">Boat Ranking</div>
+      </div>
+      <table class="data">
         <thead>
           <tr>
-            <th>#</th>
-            <th>組番</th>
-            <th>確率</th>
-            {% if r.has_odds %}<th>オッズ</th><th>EV</th>{% endif %}
+            <th>枠</th><th>選手</th><th class="r">スコア</th><th>1着確率</th><th class="r">予測</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in r.boats %}
+            <tr class="{% if b.pred_rank == 1 %}top{% endif %}">
+              <td>{{ combo_chips(b.lane|string, 'sm') }}</td>
+              <td><div class="boat-name">{{ b.name }}</div></td>
+              <td class="r"><span class="score-pill">{{ b.score }}</span></td>
+              <td>
+                <div class="bar-cell">
+                  <div class="bar"><span style="width:{{ b.prob_pct }}%;background:var(--lane-{{ b.lane }})"></span></div>
+                  <div class="bar-val">{{ b.prob_pct }}%</div>
+                </div>
+              </td>
+              <td class="r"><span class="pred-rank"><span class="medal {% if b.pred_rank == 1 %}g{% elif b.pred_rank == 2 %}s{% elif b.pred_rank == 3 %}b{% else %}x{% endif %}">{{ b.pred_rank }}</span>{{ b.pred_rank }}着</span></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="section-head">
+        <div class="section-title"><span class="tick"></span>3連単 上位予測</div>
+        <div class="section-aside">Top 10</div>
+      </div>
+      <table class="data">
+        <thead>
+          <tr>
+            <th>#</th><th>組番</th><th class="r">確率</th>{% if r.has_odds %}<th class="r">オッズ</th><th class="r">EV</th>{% endif %}
           </tr>
         </thead>
         <tbody>
           {% for t in r.trifecta %}
-          <tr {% if loop.index == 1 %}class="top-combo-row"{% endif %}>
-            <td class="rank-num">{{ t.rank }}</td>
-            <td>
-              <span class="combo-str {% if loop.index == 1 %}combo-str-top{% endif %}">
-                {{ t.combo }}
-              </span>
-            </td>
-            <td>
-              <div class="prob-bar-wrap">
-                <div class="prob-bar-bg">
-                  <div class="prob-bar-fill" style="width: {{ [t.prob_pct * 8, 100] | min }}%;"></div>
-                </div>
-                <span class="prob-label">{{ t.prob_pct }}%</span>
-              </div>
-            </td>
-            {% if r.has_odds %}
-            <td class="text-end odds-cell">
-              {% if t.odds %}{{ t.odds }}x{% else %}—{% endif %}
-            </td>
-            <td class="text-end small fw-bold
-              {% if t.ev_pct and t.ev_pct > 0 %}text-success
-              {% elif t.ev_pct %}text-danger{% endif %}">
-              {% if t.ev_pct is not none %}
-                {% if t.ev_pct > 0 %}+{% endif %}{{ t.ev_pct }}%
-              {% else %}—{% endif %}
-            </td>
-            {% endif %}
-          </tr>
+            <tr class="{% if loop.index == 1 %}top{% endif %}">
+              <td><span class="rank-n">#{{ t.rank }}</span></td>
+              <td>{{ combo_chips(t.combo) }}</td>
+              <td class="r num">{{ t.prob_pct }}%</td>
+              {% if r.has_odds %}
+                <td class="r odds">{% if t.odds %}{{ t.odds }}x{% else %}-{% endif %}</td>
+                <td class="r num {% if t.ev_pct and t.ev_pct > 0 %}ev-pos{% else %}ev-neg{% endif %}">
+                  {% if t.ev_pct is not none %}{% if t.ev_pct > 0 %}+{% endif %}{{ t.ev_pct }}%{% else %}-{% endif %}
+                </td>
+              {% endif %}
+            </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
 
-</div>
-
-<!-- 掛け金配分 -->
-<div class="card-dark p-4 mt-4">
-  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-    <h5 class="section-title mb-0">
-      <i class="bi bi-cash-stack me-2"></i>推奨ベット配分
-      {% if r.bet_mode == "value" %}
-        <span class="badge-value-bet ms-2">バリューベット</span>
-      {% else %}
-        <span class="badge-prop-bet ms-2">比例配分</span>
-      {% endif %}
-    </h5>
-    <div class="budget-summary">
-      <span class="budget-label">予算</span>
-      <span class="budget-value">{{ r.budget }}円</span>
-      <span class="budget-sep mx-2">→</span>
-      <span class="budget-label">使用</span>
-      <span class="budget-value">{{ r.total_bet }}円</span>
-      {% if r.total_bet == 0 %}
-        <span class="ms-2 badge-skip">見送り推奨</span>
-      {% endif %}
+  <div class="card bets-block">
+    <div class="section-head">
+      <div class="section-title"><span class="tick"></span>推奨ベット</div>
+      <div class="section-aside">{% if r.bet_mode == "value" %}Value Bet x {{ r.kelly_frac_pct }}% Kelly{% else %}Probability Allocation{% endif %}</div>
     </div>
+    {% if r.bets %}
+      <div class="bet-rows">
+        {% for bet in r.bets %}
+          <div class="bet-row">
+            <div class="bet-combo-wrap">{{ combo_chips(bet.combo) }}</div>
+            <div class="bet-bar"><span style="width:{{ bet.bar_pct }}%"></span></div>
+            <div class="bet-odds">{% if bet.odds %}{{ bet.odds }}x{% else %}-{% endif %}</div>
+            <div class="bet-ev {% if bet.ev_pct and bet.ev_pct > 0 %}ev-pos{% else %}ev-neg{% endif %}">
+              {% if bet.ev_pct is not none %}{% if bet.ev_pct > 0 %}+{% endif %}{{ bet.ev_pct }}%{% else %}-{% endif %}
+            </div>
+            <div class="bet-amount">¥{{ "{:,}".format(bet.amount) }}</div>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="bet-foot">
+        <span>{{ r.bets|length }}点 / 合計 ¥{{ "{:,}".format(r.total_bet) }}</span>
+        <span>未使用 ¥{{ "{:,}".format(r.unused_budget) }}</span>
+      </div>
+    {% else %}
+      <div class="skip-message">
+        <i class="bi bi-shield-exclamation"></i>
+        <span>この条件では期待値プラスの買い目がありません。見送り推奨です。</span>
+      </div>
+    {% endif %}
   </div>
 
-  {% if r.bets %}
-    <div class="bets-grid">
-      {% for bet in r.bets %}
-      <div class="bet-card {% if bet.ev_pct and bet.ev_pct > 0 %}bet-card-value{% endif %}">
-        <div class="bet-combo">{{ bet.combo }}</div>
-        <div class="bet-bar-wrap">
-          <div class="bet-bar-fill" style="width: {{ bet.bar_pct }}%;"></div>
-        </div>
-        <div class="bet-amount">{{ bet.amount }}円</div>
-        {% if bet.ev_pct is not none %}
-        <div class="bet-ev {% if bet.ev_pct > 0 %}bet-ev-pos{% else %}bet-ev-neg{% endif %}">
-          EV {% if bet.ev_pct > 0 %}+{% endif %}{{ bet.ev_pct }}%
-        </div>
-        {% endif %}
+  {% if r.has_odds and r.ev_table %}
+    <div class="card bets-block">
+      <div class="section-head">
+        <div class="section-title"><span class="tick"></span>期待値ランキング</div>
+        <div class="section-aside">EV Top 20</div>
       </div>
-      {% endfor %}
-    </div>
-    <div class="bet-note mt-3">
-      <i class="bi bi-info-circle me-1"></i>
-      {% if r.bet_mode == "value" %}
-        期待値（EV）がプラスの組み合わせに 1/4 Kelly 規準で {{ r.budget }}円を配分しています。
-      {% else %}
-        各組番の確率に比例して {{ r.budget }}円を配分しています。
-      {% endif %}
-      残り {{ r.budget - r.total_bet }}円は端数切り捨てによる余剰です。
-    </div>
-  {% else %}
-    <div class="skip-message">
-      <i class="bi bi-shield-exclamation me-2"></i>
-      {% if r.has_odds %}
-        期待値プラスの組み合わせが見つかりませんでした。このレースは見送りを推奨します。
-      {% else %}
-        高確率な組み合わせが検出されませんでした。このレースは見送りを推奨します。
-      {% endif %}
+      <table class="data">
+        <thead><tr><th>組番</th><th class="r">モデル確率</th><th class="r">オッズ</th><th class="r">EV</th></tr></thead>
+        <tbody>
+          {% for row in r.ev_table %}
+            <tr>
+              <td>{{ combo_chips(row.combo) }}</td>
+              <td class="r num">{{ row.prob_pct }}%</td>
+              <td class="r odds">{{ row.odds }}x</td>
+              <td class="r num {% if row.ev_pct > 0 %}ev-pos{% else %}ev-neg{% endif %}">{% if row.ev_pct > 0 %}+{% endif %}{{ row.ev_pct }}%</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   {% endif %}
-</div>
 
-<!-- EV テーブル（オッズ取得済みかつ上位EVあり） -->
-{% if r.has_odds and r.ev_table %}
-<div class="card-dark p-4 mt-4">
-  <h5 class="section-title mb-3">
-    <i class="bi bi-table me-2"></i>期待値ランキング（EV 上位20通り）
-  </h5>
-  <div class="table-responsive">
-    <table class="ev-table w-100">
-      <thead>
-        <tr>
-          <th>組番</th>
-          <th>モデル確率</th>
-          <th>オッズ</th>
-          <th>期待値 (EV)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in r.ev_table %}
-        <tr class="{% if row.ev_pct > 0 %}ev-row-pos{% else %}ev-row-neg{% endif %}">
-          <td><span class="combo-str">{{ row.combo }}</span></td>
-          <td>{{ row.prob_pct }}%</td>
-          <td>{{ row.odds }}x</td>
-          <td class="fw-bold {% if row.ev_pct > 0 %}text-success{% else %}text-danger{% endif %}">
-            {% if row.ev_pct > 0 %}+{% endif %}{{ row.ev_pct }}%
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="text-center mt-4">
+    <a href="{{ url_for('index') }}" class="btn ghost"><i class="bi bi-arrow-left"></i>別のレースを予測</a>
   </div>
-  <p class="text-muted small mt-2">
-    <i class="bi bi-info-circle me-1"></i>
-    EV = モデル確率 × オッズ − 1。プラスならモデルが市場より高く評価している組み合わせ。
-  </p>
-</div>
-{% endif %}
-
-<!-- 戻るボタン -->
-<div class="text-center mt-4">
-  <a href="{{ url_for('index') }}" class="btn-back">
-    <i class="bi bi-arrow-left me-2"></i>別のレースを予測する
-  </a>
-</div>
-
+</section>
 {% endblock %}

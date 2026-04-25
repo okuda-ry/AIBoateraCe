@@ -42,6 +42,19 @@
                                     通知
 ```
 
+将来的には `Predictor` と `Bettor` の間に **ValueModel** を追加し、
+予測確率・オッズ・EV・レース条件から「この買い目の EV は信用できるか」を再評価する。
+
+```
+[Predictor] → 120通りの予測確率
+      ↓
+[ValueModel] → adjusted EV / expected return
+      ↓
+[RiskManager] → 点数上限・1点上限・日次損失上限
+      ↓
+[Bettor]
+```
+
 ---
 
 ## 3. コンポーネント詳細
@@ -127,6 +140,54 @@
   "confidence": 28.3,
 }
 ```
+
+---
+
+### 3.4.1 ValueModel（価値判定モデル / 将来拡張）
+
+**役割**: 既存モデルの予測確率とリアルタイムオッズから、買い目ごとの実質的な期待回収額を推定する。
+
+現状の EV は以下で計算している。
+
+```text
+raw_ev = model_prob * odds - 1
+```
+
+しかし、`model_prob` の誤差や Plackett-Luce の結合確率誤差により、
+raw EV がプラスでも実際には負けるケースが多い。  
+そのため、買い目単位のメタモデルで raw EV を補正する。
+
+**初期実装候補**:
+
+| 方式 | 用途 | 優先度 |
+|------|------|--------|
+| LightGBM Regressor | 100円あたり期待回収額を予測 | 高 |
+| LightGBM Ranker | レース内の買い目を収益性順に並べる | 中 |
+| LightGBM Classifier | レース参加可否、買い目採用可否を分類 | 中 |
+| Set Transformer / DeepSets | 6艇集合と120買い目の関係を深層学習 | 低 |
+
+**入力特徴量例**:
+
+- 既存モデルの3連単確率
+- オッズ
+- raw EV
+- 予測確率順位
+- 人気順位
+- 予測順位と人気順位のズレ
+- 1号艇の過剰人気度
+- オッズ分布の集中度
+- 場、レース番号、天候、風速、波高
+- 戦略別の候補数・推定投資額
+
+**目的変数例**:
+
+```text
+target_return = 的中した場合は odds、外れた場合は 0
+adjusted_ev = predicted_return - 1
+```
+
+ValueModel は「買う候補」を決めるために使い、金額配分は RiskManager と capped Kelly / dutching / flat で制御する。
+モデルに金額まで直接出させると過学習時の一点集中リスクが高いため、投資上限は必ずルールで縛る。
 
 ---
 
