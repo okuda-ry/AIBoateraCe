@@ -14,6 +14,7 @@ from pathlib import Path
 from flask import Blueprint, render_template, request
 
 from auto.recorder import DB_PATH, init_db, daily_summary, strategy_summary
+from models.strategies import STRATEGIES
 
 monitor_bp = Blueprint("monitor", __name__, url_prefix="/monitor")
 
@@ -59,6 +60,26 @@ def _profit_class(profit: int) -> str:
     if profit < 0:
         return "text-loss"
     return "text-muted"
+
+
+_PREFERRED_STRATEGY_ORDER = [
+    "kelly", "ip", "strict_flat", "true_kelly_cap",
+    "dutch_value", "ip_conservative",
+]
+
+
+def _ordered_strategy_names(
+    found: set[str] | None = None,
+    include_configured: bool = False,
+) -> list[str]:
+    """表示用の戦略順。既知の戦略を先に、未知の戦略を後ろに並べる。"""
+    names = set(found or set())
+    if include_configured:
+        names.update(STRATEGIES.keys())
+
+    ordered = [s for s in _PREFERRED_STRATEGY_ORDER if s in names]
+    ordered.extend(sorted(names - set(ordered)))
+    return ordered
 
 
 # -------------------------------------------------------
@@ -129,23 +150,19 @@ def races():
     hd = _hd_param()
     has_db = DB_PATH.exists()
     rows_out = []
+    strategy_names = _ordered_strategy_names(include_configured=True)
 
     if has_db:
         con = _conn()
         if con is None:
             return render_template("monitor/races.html", hd=hd, hd_display=_hd_display(hd),
-                                   races=[], has_db=False, profit_class=_profit_class)
+                                   races=[], strategy_names=strategy_names,
+                                   has_db=False, profit_class=_profit_class)
         rows = con.execute(
             """
             SELECT
                 r.race_id, r.venue, r.rno, r.stime,
                 r.predicted_at, r.result_combo, r.result_payout,
-                -- 戦略別賭け金
-                COALESCE(SUM(CASE WHEN b.strategy='kelly' THEN b.amount ELSE 0 END), 0) AS kelly_bet,
-                COALESCE(SUM(CASE WHEN b.strategy='ip'    THEN b.amount ELSE 0 END), 0) AS ip_bet,
-                -- 戦略別払戻
-                COALESCE(SUM(CASE WHEN b.strategy='kelly' THEN b.payout ELSE 0 END), 0) AS kelly_return,
-                COALESCE(SUM(CASE WHEN b.strategy='ip'    THEN b.payout ELSE 0 END), 0) AS ip_return,
                 -- ステータス
                 COUNT(CASE WHEN b.status='win'     THEN 1 END) AS win_count,
                 COUNT(CASE WHEN b.status='pending' THEN 1 END) AS pending_count
@@ -157,11 +174,44 @@ def races():
             """,
             (hd,),
         ).fetchall()
+
+        bet_rows = con.execute(
+            """
+            SELECT
+                b.race_id,
+                b.strategy,
+                COALESCE(SUM(b.amount), 0) AS total_bet,
+                COALESCE(SUM(b.payout), 0) AS total_return
+            FROM bets b
+            JOIN races r ON r.race_id = b.race_id
+            WHERE r.hd = ?
+            GROUP BY b.race_id, b.strategy
+            ORDER BY b.strategy
+            """,
+            (hd,),
+        ).fetchall()
         con.close()
 
+        from collections import defaultdict
+        race_strategy_map: dict[str, dict[str, dict]] = defaultdict(dict)
+        found_strategies = set()
+        for b in bet_rows:
+            strategy = b["strategy"]
+            found_strategies.add(strategy)
+            total_bet = b["total_bet"]
+            total_return = b["total_return"]
+            race_strategy_map[b["race_id"]][strategy] = {
+                "total_bet": total_bet,
+                "total_return": total_return,
+                "profit": total_return - total_bet,
+            }
+
+        strategy_names = _ordered_strategy_names(
+            found_strategies,
+            include_configured=True,
+        )
+
         for r in rows:
-            kelly_profit = r["kelly_return"] - r["kelly_bet"]
-            ip_profit    = r["ip_return"]    - r["ip_bet"]
             if r["predicted_at"] is None:
                 status = "未予測"
                 status_cls = "status-pending"
@@ -175,6 +225,13 @@ def races():
                 status = "見送り"
                 status_cls = "status-skip"
 
+            strategies = {}
+            for strategy in strategy_names:
+                strategies[strategy] = race_strategy_map[r["race_id"]].get(
+                    strategy,
+                    {"total_bet": 0, "total_return": 0, "profit": 0},
+                )
+
             rows_out.append({
                 "race_id":       r["race_id"],
                 "venue":         r["venue"],
@@ -184,10 +241,7 @@ def races():
                 "status_cls":    status_cls,
                 "result_combo":  r["result_combo"],
                 "result_payout": r["result_payout"],
-                "kelly_bet":     r["kelly_bet"],
-                "ip_bet":        r["ip_bet"],
-                "kelly_profit":  kelly_profit,
-                "ip_profit":     ip_profit,
+                "strategies":    strategies,
                 "win_count":     r["win_count"],
             })
 
@@ -196,6 +250,7 @@ def races():
         hd=hd,
         hd_display=_hd_display(hd),
         races=rows_out,
+        strategy_names=strategy_names,
         has_db=has_db,
         profit_class=_profit_class,
     )

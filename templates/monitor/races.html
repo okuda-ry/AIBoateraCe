@@ -39,10 +39,16 @@
           <th>状態</th>
           <th>結果</th>
           <th class="text-end">払戻</th>
-          <th class="text-end">kelly</th>
-          <th class="text-end">ip</th>
-          <th class="text-end">kelly 損益</th>
-          <th class="text-end">ip 損益</th>
+          {% for strategy in strategy_names %}
+          <th class="text-end strategy-group-start">
+            <span class="strategy-badge strategy-{{ strategy }}">{{ strategy }}</span>
+            <span class="strategy-col-label">賭金</span>
+          </th>
+          <th class="text-end strategy-group-cell">
+            <span class="strategy-badge strategy-{{ strategy }}">{{ strategy }}</span>
+            <span class="strategy-col-label">損益</span>
+          </th>
+          {% endfor %}
         </tr>
       </thead>
       <tbody>
@@ -56,18 +62,15 @@
           <td class="text-end font-mono">
             {% if r.result_payout %}{{ "{:,}".format(r.result_payout) }}{% else %}—{% endif %}
           </td>
-          <td class="text-end font-mono">
-            {% if r.kelly_bet %}{{ "{:,}".format(r.kelly_bet) }}{% else %}—{% endif %}
+          {% for strategy in strategy_names %}
+          {% set stats = r.strategies[strategy] %}
+          <td class="text-end font-mono strategy-group-start strategy-cell-{{ strategy }}">
+            {% if stats.total_bet %}{{ "{:,}".format(stats.total_bet) }}{% else %}—{% endif %}
           </td>
-          <td class="text-end font-mono">
-            {% if r.ip_bet %}{{ "{:,}".format(r.ip_bet) }}{% else %}—{% endif %}
+          <td class="text-end font-mono strategy-group-cell strategy-cell-{{ strategy }} {{ profit_class(stats.profit) }}">
+            {% if stats.total_bet %}{{ "{:+,}".format(stats.profit) }}{% else %}—{% endif %}
           </td>
-          <td class="text-end font-mono {{ profit_class(r.kelly_profit) }}">
-            {% if r.kelly_bet %}{{ "{:+,}".format(r.kelly_profit) }}{% else %}—{% endif %}
-          </td>
-          <td class="text-end font-mono {{ profit_class(r.ip_profit) }}">
-            {% if r.ip_bet %}{{ "{:+,}".format(r.ip_profit) }}{% else %}—{% endif %}
-          </td>
+          {% endfor %}
         </tr>
         {% endfor %}
       </tbody>

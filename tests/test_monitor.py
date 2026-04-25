@@ -126,6 +126,25 @@ class TestRacesList:
         resp = c.get("/monitor/races?hd=20260406")
         assert resp.status_code == 200
 
+    def test_races_list_shows_all_strategy_columns(self, client, biased_odds):
+        c, db_file = client
+        import auto.recorder as rec
+        race = {
+            "race_id": "20260406_04_04",
+            "jcd": "04", "venue": "平和島",
+            "hd": "20260406", "rno": 4, "stime": "11:30",
+        }
+        rec.upsert_race(race)
+        rec.save_strategy_bets(race["race_id"], "strict_flat", {"1-2-3": 100}, biased_odds)
+        rec.update_result(race["race_id"], "1-2-3", 3530)
+
+        resp = c.get("/monitor/races?hd=20260406")
+        html = resp.data.decode("utf-8")
+        assert resp.status_code == 200
+        assert "strict_flat" in html
+        assert "true_kelly_cap" in html
+        assert "+3,430" in html
+
     def test_hd_param_used(self, client):
         """hd パラメータが違う日付でも 200 を返す。"""
         c, _ = client
