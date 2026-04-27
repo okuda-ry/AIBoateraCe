@@ -1,32 +1,11 @@
 """
-run_auto.py — 競艇 AI 自動モニタリングの起動スクリプト。
+run_auto.py - dry-run auto monitoring entrypoint.
 
-【動作概要】
-  1. 当日のレーススケジュールを取得
-  2. 各レースの発走 5分前に予測を実行（ドライラン / 実投票なし）
-  3. 発走 35分後に結果を取得して損益を計算
-  4. data/auto.db に全記録を保存
-
-【使い方】
-  # 今日の全場を監視（ドライラン）
-  python run_auto.py
-
-  # 予算・最低EV を変更
-  python run_auto.py --budget 2000 --min-edge 0.08
-
-  # 特定の日付を指定（過去日のキャッチアップ確認など）
-  python run_auto.py --date 20260405
-
-  # 日次サマリーだけを表示して終了
-  python run_auto.py --summary
-
-  # データベースの内容を確認
-  python run_auto.py --show-db
-
-【注意】
-  実際の投票は行いません。
-  既存の Web アプリ (python app.py) とは独立して動作します。
+This script schedules predictions, collects results, and records dry-run profit
+and loss. It never places real bets.
 """
+
+from __future__ import annotations
 
 import argparse
 import sys
@@ -37,28 +16,31 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 
-def cmd_run(args):
+def cmd_run(args: argparse.Namespace) -> None:
     from auto.orchestrator import run
+
     run(
-        hd       = args.date,
-        budget   = args.budget,
-        min_edge = args.min_edge,
+        hd=args.date,
+        budget=args.budget,
+        min_edge=args.min_edge,
     )
 
 
-def cmd_summary(args):
+def cmd_summary(args: argparse.Namespace) -> None:
     from auto.recorder import init_db, print_daily_summary
+
     init_db()
     print_daily_summary(args.date)
 
 
-def cmd_show_db(args):
-    """DB の内容をテキスト形式で表示する（レース一覧 + 戦略別サマリー）。"""
+def cmd_show_db(args: argparse.Namespace) -> None:
+    """Print race-level dry-run totals and dynamic strategy summaries."""
     import sqlite3
+
     from auto.recorder import DB_PATH, init_db, strategy_summary
 
     if not DB_PATH.exists():
-        print("DB が見つかりません。まず run_auto.py を実行してください。")
+        print("DB not found. Run `python run_auto.py` first.")
         return
 
     init_db()
@@ -66,96 +48,125 @@ def cmd_show_db(args):
     con.row_factory = sqlite3.Row
 
     hd = args.date
-    where = f"WHERE r.hd = '{hd}'" if hd else ""
+    params: tuple[str, ...] = ()
+    where = ""
+    if hd:
+        where = "WHERE r.hd = ?"
+        params = (hd,)
 
-    rows = con.execute(f"""
+    rows = con.execute(
+        f"""
         SELECT
-            r.race_id, r.venue, r.rno, r.stime,
-            r.confidence,
-            r.result_combo, r.result_payout,
-            COUNT(DISTINCT b.id)                       AS n_bets,
-            COALESCE(SUM(CASE WHEN b.strategy='kelly' THEN b.amount ELSE 0 END), 0) AS kelly_bet,
-            COALESCE(SUM(CASE WHEN b.strategy='ip'    THEN b.amount ELSE 0 END), 0) AS ip_bet,
-            COALESCE(SUM(CASE WHEN b.strategy='bayes' THEN b.amount ELSE 0 END), 0) AS bayes_bet,
-            COALESCE(SUM(b.payout), 0)                 AS total_return,
+            r.race_id,
+            r.venue,
+            r.rno,
+            r.stime,
+            r.result_combo,
+            r.result_payout,
+            COUNT(DISTINCT b.id)             AS n_bets,
+            COALESCE(SUM(b.amount), 0)       AS total_bet,
+            COALESCE(SUM(b.payout), 0)       AS total_return,
             COALESCE(SUM(b.payout), 0)
-                - COALESCE(SUM(b.amount), 0)           AS profit
+              - COALESCE(SUM(b.amount), 0)   AS profit
         FROM races r
-        LEFT JOIN bets b ON b.race_id = r.race_id AND b.status != 'pending'
+        LEFT JOIN bets b
+          ON b.race_id = r.race_id
+         AND b.status != 'pending'
         {where}
         GROUP BY r.race_id
         ORDER BY r.hd, r.stime, r.jcd, r.rno
-    """).fetchall()
+        """,
+        params,
+    ).fetchall()
 
     if not rows:
-        print("該当するレースが見つかりません。")
+        print("No races found.")
         con.close()
         return
 
-    print(f"\n{'レース':^22}  {'時刻':^5}  {'結果':^8}  {'払戻':^7}  "
-          f"{'kelly':^6}  {'ip':^6}  {'bayes':^6}  {'回収':^6}  {'損益':^7}")
-    print("-" * 90)
+    print(
+        f"\n{'race':^22}  {'time':^5}  {'result':^8}  {'payout':^9}  "
+        f"{'total_bet':^10}  {'return':^10}  {'profit':^10}"
+    )
+    print("-" * 88)
 
-    total_bet = total_return = 0
-    for r in rows:
-        result  = r["result_combo"] or "未確定"
-        payout  = f"{r['result_payout']:,}" if r["result_payout"] else "  —"
-        kelly   = f"{r['kelly_bet']:,}" if r["kelly_bet"] else "  0"
-        ip      = f"{r['ip_bet']:,}"    if r["ip_bet"]    else "  0"
-        bayes   = f"{r['bayes_bet']:,}" if r["bayes_bet"] else "  0"
-        ret     = f"{r['total_return']:,}" if r["total_return"] else "  0"
-        profit  = f"{r['profit']:+,}"
-        print(f"  {r['venue']:>6} {r['rno']:>2}R  {r['stime']}  "
-              f"{result:>8}  {payout:>7}  "
-              f"{kelly:>6}  {ip:>6}  {bayes:>6}  "
-              f"{ret:>6}  {profit:>7}")
-        total_bet    += (r["kelly_bet"] or 0) + (r["ip_bet"] or 0) + (r["bayes_bet"] or 0)
-        total_return += r["total_return"] or 0
+    total_bet = 0
+    total_return = 0
+    for row in rows:
+        result = row["result_combo"] or "-"
+        payout = f"{row['result_payout']:,}" if row["result_payout"] else "-"
+        bet = f"{row['total_bet']:,}" if row["total_bet"] else "0"
+        ret = f"{row['total_return']:,}" if row["total_return"] else "0"
+        profit = f"{row['profit']:+,}"
 
-    print("-" * 90)
+        print(
+            f"  {row['venue']:>6} {row['rno']:>2}R  {row['stime']}  "
+            f"{result:>8}  {payout:>9}  {bet:>10}  {ret:>10}  {profit:>10}"
+        )
+        total_bet += row["total_bet"] or 0
+        total_return += row["total_return"] or 0
+
+    print("-" * 88)
     profit = total_return - total_bet
-    roi    = total_return / total_bet * 100 if total_bet else 0
-    print(f"  {'合計':>28}  "
-          f"{'賭計':>10} {total_bet:>6,}  "
-          f"{'回収':>2} {total_return:>6,}  {profit:>+7,}  ROI:{roi:.1f}%")
+    roi = total_return / total_bet * 100 if total_bet else 0.0
+    print(
+        f"{'TOTAL':>42}  bet {total_bet:>10,}  "
+        f"return {total_return:>10,}  profit {profit:>+10,}  ROI:{roi:.1f}%"
+    )
     print()
     con.close()
 
-    # 戦略別サマリー
     rows_s = strategy_summary(hd)
     if rows_s:
-        print(f"  {'戦略':8s}  {'賭レース':>6}  {'賭金':>8}  {'回収':>8}  {'損益':>8}  {'ROI':>7}  {'的中':>5}")
-        print("  " + "-" * 62)
-        for r in rows_s:
+        print(
+            f"  {'strategy':20s}  {'races':>6}  {'bet':>10}  "
+            f"{'return':>10}  {'profit':>10}  {'ROI':>8}  {'hit':>8}"
+        )
+        print("  " + "-" * 82)
+        for row in rows_s:
             print(
-                f"  {r['strategy']:8s}  {r['races_bet']:>6}  "
-                f"{r['total_bet']:>8,}  {r['total_return']:>8,}  "
-                f"{r['profit']:>+8,}  {r['roi_pct']:>6.1f}%  "
-                f"{r['hit_count']:>2}({r['hit_rate_pct']:.0f}%)"
+                f"  {row['strategy']:20s}  {row['races_bet']:>6}  "
+                f"{row['total_bet']:>10,}  {row['total_return']:>10,}  "
+                f"{row['profit']:>+10,}  {row['roi_pct']:>7.1f}%  "
+                f"{row['hit_count']:>2}({row['hit_rate_pct']:.0f}%)"
             )
         print()
 
 
-# -------------------------------------------------------
-# エントリポイント
-# -------------------------------------------------------
-
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="競艇 AI 自動モニタリング（ドライラン）",
+        description="Boat race AI dry-run auto monitoring.",
     )
-    parser.add_argument("--date",     type=str,   default=None,
-                        help="対象日 YYYYMMDD（デフォルト: 今日）")
-    parser.add_argument("--budget",   type=int,   default=1000,
-                        help="1レースあたり仮想予算（円）")
-    parser.add_argument("--min-edge", type=float, default=0.05,
-                        dest="min_edge",
-                        help="最低期待値（デフォルト: 0.05 = 5%%）")
-    parser.add_argument("--summary",  action="store_true",
-                        help="日次サマリーを表示して終了")
-    parser.add_argument("--show-db",  action="store_true",
-                        dest="show_db",
-                        help="DB の内容を表示して終了")
+    parser.add_argument(
+        "--date",
+        type=str,
+        default=None,
+        help="Target date in YYYYMMDD. Defaults to today.",
+    )
+    parser.add_argument(
+        "--budget",
+        type=int,
+        default=1000,
+        help="Dry-run budget per race in yen.",
+    )
+    parser.add_argument(
+        "--min-edge",
+        type=float,
+        default=0.05,
+        dest="min_edge",
+        help="Minimum raw EV threshold. 0.05 means 5%%.",
+    )
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="Print the daily summary and exit.",
+    )
+    parser.add_argument(
+        "--show-db",
+        action="store_true",
+        dest="show_db",
+        help="Print dry-run database contents and exit.",
+    )
 
     args = parser.parse_args()
 

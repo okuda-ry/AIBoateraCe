@@ -64,7 +64,8 @@ def _profit_class(profit: int) -> str:
 
 _PREFERRED_STRATEGY_ORDER = [
     "kelly", "ip", "strict_flat", "true_kelly_cap",
-    "dutch_value", "ip_conservative",
+    "dutch_value", "ip_conservative", "edge_band_flat",
+    "favorite_overlay_flat", "tail_value_probe",
 ]
 
 
@@ -80,6 +81,71 @@ def _ordered_strategy_names(
     ordered = [s for s in _PREFERRED_STRATEGY_ORDER if s in names]
     ordered.extend(sorted(names - set(ordered)))
     return ordered
+
+
+def _include_configured_strategy_rows(rows: list[dict]) -> list[dict]:
+    """Add zero-value rows for configured strategies that have no DB records yet."""
+    row_map = {r["strategy"]: r for r in rows}
+    ordered = _ordered_strategy_names(set(row_map), include_configured=True)
+    result = []
+    for strategy in ordered:
+        result.append(row_map.get(strategy, {
+            "strategy": strategy,
+            "races_bet": 0,
+            "total_bet": 0,
+            "total_return": 0,
+            "profit": 0,
+            "roi_pct": 0.0,
+            "hit_count": 0,
+            "hit_rate_pct": 0.0,
+        }))
+    return result
+
+
+def _dashboard_metrics(summary: dict | None, strategies: list[dict]) -> dict:
+    """Build derived dashboard metrics for quick dry-run evaluation."""
+    if not summary:
+        return {}
+
+    settled = [s for s in strategies if s.get("total_bet", 0) > 0]
+    best_roi = max(settled, key=lambda s: (s["roi_pct"], s["profit"]), default=None)
+    best_profit = max(settled, key=lambda s: (s["profit"], s["roi_pct"]), default=None)
+    worst_profit = min(settled, key=lambda s: (s["profit"], s["roi_pct"]), default=None)
+    positive_count = sum(1 for s in settled if s["profit"] > 0)
+
+    total_bet = summary.get("total_bet", 0) or 0
+    races_predicted = summary.get("races_predicted", 0) or 0
+    races_bet = summary.get("races_bet", 0) or 0
+    hit_count = summary.get("hit_count", 0) or 0
+
+    enriched = []
+    for s in strategies:
+        bet = s.get("total_bet", 0) or 0
+        races = s.get("races_bet", 0) or 0
+        ret = s.get("total_return", 0) or 0
+        enriched.append({
+            **s,
+            "avg_bet_per_race": round(bet / races) if races else 0,
+            "profit_per_race": round(s.get("profit", 0) / races) if races else 0,
+            "return_per_hit": round(ret / s.get("hit_count", 0)) if s.get("hit_count", 0) else 0,
+            "exposure_pct": round(bet / total_bet * 100, 1) if total_bet else 0.0,
+        })
+
+    return {
+        "best_roi": best_roi,
+        "best_profit": best_profit,
+        "worst_profit": worst_profit,
+        "positive_count": positive_count,
+        "strategy_count": len(strategies),
+        "active_strategy_count": len(settled),
+        "bet_rate_pct": round(races_bet / races_predicted * 100, 1) if races_predicted else 0.0,
+        "skip_rate_pct": round(summary.get("races_skip", 0) / races_predicted * 100, 1) if races_predicted else 0.0,
+        "avg_bet_per_race": round(total_bet / races_bet) if races_bet else 0,
+        "return_per_hit": round(summary.get("total_return", 0) / hit_count) if hit_count else 0,
+        "roi_gap": round((best_roi["roi_pct"] - worst_profit["roi_pct"]), 1)
+                   if best_roi and worst_profit else 0.0,
+        "strategies": enriched,
+    }
 
 
 # -------------------------------------------------------
@@ -105,7 +171,8 @@ def dashboard():
 
     has_db = DB_PATH.exists()
     summary = daily_summary(hd) if has_db else None
-    strategies = strategy_summary(hd) if has_db else []
+    strategies = _include_configured_strategy_rows(strategy_summary(hd)) if has_db else []
+    metrics = _dashboard_metrics(summary, strategies)
 
     # レース一覧（ステータス集計用）
     races = []
@@ -134,6 +201,7 @@ def dashboard():
         hd_display=_hd_display(hd),
         dates=dates,
         summary=summary,
+        metrics=metrics,
         strategies=strategies,
         races=races,
         has_db=has_db,
@@ -311,6 +379,13 @@ def race_detail(race_id: str):
             "profit":       total_return - total_bet,
             "n_bets":       len(blist),
         }
+    for strat in _ordered_strategy_names(set(strategy_totals), include_configured=True):
+        strategy_totals.setdefault(strat, {
+            "total_bet": 0,
+            "total_return": 0,
+            "profit": 0,
+            "n_bets": 0,
+        })
 
     # 的中コンボの予想確率（いずれかの戦略でベットしていれば取得できる）
     result_prob: float | None = None
@@ -386,8 +461,8 @@ def history():
             "kelly", "ip", "strict_flat", "true_kelly_cap",
             "dutch_value", "ip_conservative",
         ]
-        strategy_names = [s for s in preferred_order if s in all_strategies]
-        strategy_names.extend(sorted(all_strategies - set(strategy_names)))
+        all_strategies.update(STRATEGIES.keys())
+        strategy_names = _ordered_strategy_names(all_strategies)
 
         for hd in sorted(all_hds):
             strategies = {}

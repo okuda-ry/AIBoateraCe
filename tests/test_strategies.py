@@ -14,6 +14,9 @@ from models.strategies import (
     allocate_true_kelly_cap,
     allocate_dutch_value,
     allocate_ip_conservative,
+    allocate_edge_band_flat,
+    allocate_favorite_overlay_flat,
+    allocate_tail_value_probe,
     run_all_strategies,
     COMBO_STRS,
     COMBO_IDX,
@@ -179,6 +182,9 @@ class TestConservativeStrategies:
         allocate_true_kelly_cap,
         allocate_dutch_value,
         allocate_ip_conservative,
+        allocate_edge_band_flat,
+        allocate_favorite_overlay_flat,
+        allocate_tail_value_probe,
     ])
     def test_returns_dict(self, fn, biased_probs, biased_odds):
         result = fn(biased_probs, biased_odds, budget=1000)
@@ -189,6 +195,9 @@ class TestConservativeStrategies:
         allocate_true_kelly_cap,
         allocate_dutch_value,
         allocate_ip_conservative,
+        allocate_edge_band_flat,
+        allocate_favorite_overlay_flat,
+        allocate_tail_value_probe,
     ])
     def test_no_bets_when_no_edge(self, fn, sample_probs, sample_odds):
         result = fn(sample_probs, sample_odds, budget=1000)
@@ -199,6 +208,9 @@ class TestConservativeStrategies:
         allocate_true_kelly_cap,
         allocate_dutch_value,
         allocate_ip_conservative,
+        allocate_edge_band_flat,
+        allocate_favorite_overlay_flat,
+        allocate_tail_value_probe,
     ])
     def test_bets_are_capped_and_rounded(self, fn, biased_probs, biased_odds):
         result = fn(biased_probs, biased_odds, budget=1000)
@@ -206,6 +218,67 @@ class TestConservativeStrategies:
         assert len(result) <= 4
         for v in result.values():
             assert v % 100 == 0
+
+    def test_edge_band_flat_ignores_extreme_longshots(self):
+        probs = np.zeros(120)
+        probs[COMBO_IDX["1-2-3"]] = 0.02
+        probs[COMBO_IDX["1-2-4"]] = 0.08
+        probs += (1.0 - probs.sum()) / 120
+
+        odds = {c: 10.0 for c in COMBO_STRS}
+        odds["1-2-3"] = 120.0  # high raw EV, but outside the odds band
+        odds["1-2-4"] = 15.0   # inside the target EV band
+
+        result = allocate_edge_band_flat(probs, odds, budget=1000)
+
+        assert result == {"1-2-4": 100}
+
+    def test_edge_band_flat_caps_combo_count(self):
+        probs = np.zeros(120)
+        picks = ["1-2-3", "1-2-4", "1-3-2"]
+        for combo in picks:
+            probs[COMBO_IDX[combo]] = 0.08
+        probs += (1.0 - probs.sum()) / 120
+
+        odds = {c: 10.0 for c in COMBO_STRS}
+        for combo in picks:
+            odds[combo] = 15.0
+
+        result = allocate_edge_band_flat(probs, odds, budget=1000, max_combos=2)
+
+        assert len(result) == 2
+        assert sum(result.values()) == 200
+
+    def test_favorite_overlay_flat_requires_high_probability(self):
+        probs = np.zeros(120)
+        probs[COMBO_IDX["1-2-3"]] = 0.09
+        probs[COMBO_IDX["1-2-4"]] = 0.03
+        filler = [i for i in range(120) if i not in {COMBO_IDX["1-2-3"], COMBO_IDX["1-2-4"]}]
+        probs[filler] = (1.0 - probs.sum()) / len(filler)
+
+        odds = {c: 10.0 for c in COMBO_STRS}
+        odds["1-2-3"] = 14.0
+        odds["1-2-4"] = 12.0
+
+        result = allocate_favorite_overlay_flat(probs, odds, budget=1000)
+
+        assert result == {"1-2-3": 100}
+
+    def test_tail_value_probe_is_one_tiny_stake(self):
+        probs = np.zeros(120)
+        probs[COMBO_IDX["1-2-3"]] = 0.015
+        probs[COMBO_IDX["1-2-4"]] = 0.016
+        filler = [i for i in range(120) if i not in {COMBO_IDX["1-2-3"], COMBO_IDX["1-2-4"]}]
+        probs[filler] = (1.0 - probs.sum()) / len(filler)
+
+        odds = {c: 10.0 for c in COMBO_STRS}
+        odds["1-2-3"] = 150.0
+        odds["1-2-4"] = 180.0
+
+        result = allocate_tail_value_probe(probs, odds, budget=1000)
+
+        assert len(result) == 1
+        assert sum(result.values()) == 100
 
 
 # -------------------------------------------------------

@@ -36,7 +36,7 @@
 
 {% if not has_db %}
   <div class="monitor-empty-card">
-    <div class="monitor-empty-icon">📭</div>
+    <div class="monitor-empty-icon">DB</div>
     <div class="monitor-empty-msg">データが見つかりません</div>
     <div class="text-muted" style="font-size:.875rem">
       <code>python run_auto.py</code> を実行するとデータが記録されます。
@@ -64,35 +64,178 @@
   </div>
 </div>
 
-<div class="row g-3 mb-4">
+<div class="monitor-kpi-grid mb-4">
+  <div class="monitor-kpi">
+    <div class="monitor-kpi-label">回収率</div>
+    <div class="monitor-kpi-value {{ profit_class(summary.roi_pct - 100) }}">{{ "%.1f"|format(summary.roi_pct) }}%</div>
+    <div class="monitor-kpi-sub">損益 {{ "{:+,}".format(summary.profit) }}円</div>
+  </div>
+  <div class="monitor-kpi">
+    <div class="monitor-kpi-label">参加率</div>
+    <div class="monitor-kpi-value">{{ "%.1f"|format(metrics.bet_rate_pct) }}%</div>
+    <div class="monitor-kpi-sub">見送り {{ "%.1f"|format(metrics.skip_rate_pct) }}%</div>
+  </div>
+  <div class="monitor-kpi">
+    <div class="monitor-kpi-label">平均投資</div>
+    <div class="monitor-kpi-value">{{ "{:,}".format(metrics.avg_bet_per_race) }}<span>円</span></div>
+    <div class="monitor-kpi-sub">購入レースあたり</div>
+  </div>
+  <div class="monitor-kpi">
+    <div class="monitor-kpi-label">的中時平均回収</div>
+    <div class="monitor-kpi-value">{{ "{:,}".format(metrics.return_per_hit) }}<span>円</span></div>
+    <div class="monitor-kpi-sub">的中 {{ summary.hit_count }}件</div>
+  </div>
+  <div class="monitor-kpi">
+    <div class="monitor-kpi-label">最高ROI</div>
+    {% if metrics.best_roi %}
+      <div class="monitor-kpi-value {{ profit_class(metrics.best_roi.roi_pct - 100) }}">{{ "%.1f"|format(metrics.best_roi.roi_pct) }}%</div>
+      <div class="monitor-kpi-sub">{{ metrics.best_roi.strategy }}</div>
+    {% else %}
+      <div class="monitor-kpi-value">-</div>
+      <div class="monitor-kpi-sub">no data</div>
+    {% endif %}
+  </div>
+  <div class="monitor-kpi">
+    <div class="monitor-kpi-label">黒字戦略</div>
+    <div class="monitor-kpi-value">{{ metrics.positive_count }}<span>/{{ metrics.active_strategy_count }}</span></div>
+    <div class="monitor-kpi-sub">ROI差 {{ "%.1f"|format(metrics.roi_gap) }}pt</div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4 monitor-main-row">
   <div class="col-md-6">
-    <div class="card-dark p-4 h-100">
-      <div class="section-title mb-3"><i class="bi bi-wallet2 me-2"></i>損益サマリー</div>
-      <div class="pnl-grid">
-        <div class="pnl-row">
-          <span class="pnl-label">総賭け金</span>
-          <span class="pnl-value">{{ "{:,}".format(summary.total_bet) }} 円</span>
+    <div class="card-dark p-4 pnl-overview-card monitor-summary-sticky">
+      <div class="pnl-overview-head">
+        <div>
+          <div class="section-title mb-1"><i class="bi bi-wallet2 me-2"></i>損益サマリー</div>
+          <div class="pnl-overview-sub">
+            {% if summary.roi_pct >= 100 %}
+              黒字圏。投資配分と再現性を確認
+            {% elif summary.roi_pct >= 75 %}
+              警戒圏。見送り条件と点数削減を確認
+            {% else %}
+              要改善。長穴過多と戦略別露出を優先確認
+            {% endif %}
+          </div>
         </div>
-        <div class="pnl-row">
-          <span class="pnl-label">総払戻</span>
-          <span class="pnl-value">{{ "{:,}".format(summary.total_return) }} 円</span>
+        <div class="pnl-health {{ 'is-good' if summary.roi_pct >= 100 else 'is-warn' if summary.roi_pct >= 75 else 'is-bad' }}">
+          {{ "GOOD" if summary.roi_pct >= 100 else "WATCH" if summary.roi_pct >= 75 else "RISK" }}
         </div>
-        <div class="pnl-row pnl-row-total">
-          <span class="pnl-label">損益</span>
-          <span class="pnl-value {{ profit_class(summary.profit) }} fw-bold">
-            {{ "{:+,}".format(summary.profit) }} 円
-          </span>
+      </div>
+
+      <div class="pnl-hero">
+        <div>
+          <div class="pnl-hero-label">本日損益</div>
+          <div class="pnl-hero-profit {{ profit_class(summary.profit) }}">
+            {{ "{:+,}".format(summary.profit) }}<span>円</span>
+          </div>
         </div>
-        <div class="pnl-row">
-          <span class="pnl-label">回収率</span>
-          <span class="pnl-value {{ profit_class(summary.roi_pct - 100) }}">
-            {{ "%.1f"|format(summary.roi_pct) }} %
-          </span>
+        <div class="pnl-roi-dial" style="--roi: {{ [summary.roi_pct, 160] | min }};">
+          <div class="pnl-roi-inner">
+            <span>{{ "%.1f"|format(summary.roi_pct) }}%</span>
+            <small>ROI</small>
+          </div>
         </div>
-        <div class="pnl-row">
-          <span class="pnl-label">的中</span>
-          <span class="pnl-value">{{ summary.hit_count }} 回（{{ "%.1f"|format(summary.hit_rate_pct) }}%）</span>
+      </div>
+
+      <div class="pnl-flow">
+        <div>
+          <span>総賭け金</span>
+          <b>{{ "{:,}".format(summary.total_bet) }}円</b>
         </div>
+        <i class="bi bi-arrow-right"></i>
+        <div>
+          <span>総払戻</span>
+          <b>{{ "{:,}".format(summary.total_return) }}円</b>
+        </div>
+      </div>
+
+      <div class="pnl-mini-grid">
+        <div>
+          <span>的中</span>
+          <b>{{ summary.hit_count }}回</b>
+          <small>{{ "%.1f"|format(summary.hit_rate_pct) }}%</small>
+        </div>
+        <div>
+          <span>参加率</span>
+          <b>{{ "%.1f"|format(metrics.bet_rate_pct) }}%</b>
+          <small>見送り {{ "%.1f"|format(metrics.skip_rate_pct) }}%</small>
+        </div>
+        <div>
+          <span>平均投資</span>
+          <b>{{ "{:,}".format(metrics.avg_bet_per_race) }}円</b>
+          <small>購入Rあたり</small>
+        </div>
+        <div>
+          <span>的中時平均</span>
+          <b>{{ "{:,}".format(metrics.return_per_hit) }}円</b>
+          <small>払戻平均</small>
+        </div>
+      </div>
+
+      <div class="pnl-note">
+        <i class="bi bi-info-circle"></i>
+        <span>
+          {% if metrics.best_roi %}
+            最高ROIは <b>{{ metrics.best_roi.strategy }}</b> の {{ "%.1f"|format(metrics.best_roi.roi_pct) }}%。全体との差は {{ "%.1f"|format(summary.roi_pct - metrics.best_roi.roi_pct) }}pt。
+          {% else %}
+            戦略別の確定データがまだありません。
+          {% endif %}
+        </span>
+      </div>
+
+      <div class="pnl-deep-grid">
+        <div class="pnl-deep-card">
+          <div class="pnl-deep-label">評価メモ</div>
+          <div class="pnl-check-list">
+            <div>
+              <i class="bi bi-exclamation-triangle"></i>
+              <span>回収率100%まであと <b>{{ "{:,}".format(summary.total_bet - summary.total_return) }}円</b></span>
+            </div>
+            <div>
+              <i class="bi bi-pie-chart"></i>
+              <span>投資集中は <b>{{ metrics.best_profit.strategy if metrics.best_profit else "-" }}</b> と <b>{{ metrics.worst_profit.strategy if metrics.worst_profit else "-" }}</b> を比較</span>
+            </div>
+            <div>
+              <i class="bi bi-funnel"></i>
+              <span>参加率が高い日は、点数上限とEV帯フィルタを優先確認</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pnl-deep-card">
+          <div class="pnl-deep-label">戦略ハイライト</div>
+          <div class="pnl-highlight-list">
+            <div>
+              <span>最高損益</span>
+              {% if metrics.best_profit %}
+                <b class="{{ profit_class(metrics.best_profit.profit) }}">{{ metrics.best_profit.strategy }} / {{ "{:+,}".format(metrics.best_profit.profit) }}円</b>
+              {% else %}
+                <b>-</b>
+              {% endif %}
+            </div>
+            <div>
+              <span>最大損失</span>
+              {% if metrics.worst_profit %}
+                <b class="{{ profit_class(metrics.worst_profit.profit) }}">{{ metrics.worst_profit.strategy }} / {{ "{:+,}".format(metrics.worst_profit.profit) }}円</b>
+              {% else %}
+                <b>-</b>
+              {% endif %}
+            </div>
+            <div>
+              <span>黒字戦略</span>
+              <b>{{ metrics.positive_count }} / {{ metrics.active_strategy_count }}</b>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pnl-action-strip">
+        <div>
+          <span>次の確認</span>
+          <b>長穴帯・高EV帯の買い過ぎを、戦略別シェアで切り分け</b>
+        </div>
+        <a href="{{ url_for('monitor.history') }}">履歴を見る <i class="bi bi-arrow-right"></i></a>
       </div>
     </div>
   </div>
@@ -109,11 +252,11 @@
         {% endif %}
       </div>
 
-      {% if strategies %}
+      {% if metrics.strategies %}
         <div class="strategy-card-grid">
-          {% for s in strategies %}
+          {% for s in metrics.strategies %}
             {% set roi_delta = s.roi_pct - 100 %}
-            {% set exposure = ((s.total_bet / summary.total_bet * 100) if summary and summary.total_bet else 0) %}
+            {% set exposure = s.exposure_pct %}
             <div class="strategy-card {% if s.profit > 0 %}is-profit{% elif s.profit < 0 %}is-loss{% endif %}">
               <div class="strategy-card-top">
                 <div class="strategy-name-wrap">
@@ -131,6 +274,9 @@
                 <div><span>賭け金</span><b>{{ "{:,}".format(s.total_bet) }}</b></div>
                 <div><span>的中</span><b>{{ s.hit_count }} / {{ s.races_bet }}</b></div>
                 <div><span>Hit</span><b>{{ "%.1f"|format(s.hit_rate_pct) }}%</b></div>
+                <div><span>Avg</span><b>{{ "{:,}".format(s.avg_bet_per_race) }}</b></div>
+                <div><span>P/R</span><b class="{{ profit_class(s.profit_per_race) }}">{{ "{:+,}".format(s.profit_per_race) }}</b></div>
+                <div><span>Pay/Hit</span><b>{{ "{:,}".format(s.return_per_hit) }}</b></div>
               </div>
 
               <div class="strategy-exposure">
@@ -176,7 +322,7 @@
           {% elif r.predicted_at %}
             <div class="race-mini-skip-lbl">見送り</div>
           {% else %}
-            <div class="race-mini-skip-lbl">—</div>
+            <div class="race-mini-skip-lbl">-</div>
           {% endif %}
         </a>
       {% endfor %}

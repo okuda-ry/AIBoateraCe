@@ -349,6 +349,138 @@ def allocate_ip_conservative(
     return _round_bets(amounts, min_bet, stake_budget)
 
 
+def allocate_edge_band_flat(
+    probs: np.ndarray,
+    odds_dict: dict,
+    budget: int     = 1000,
+    min_bet: int    = 100,
+    top_n: int      = 10,
+    max_combos: int = 2,
+    min_edge: float = 0.20,
+    max_edge: float = 0.40,
+    min_odds: float = 10.0,
+    max_odds: float = 50.0,
+    **_,
+) -> dict:
+    """
+    Moderate value band strategy.
+
+    Dry-run data showed the largest losses came from very high raw EV longshots.
+    This strategy only samples the middle edge band and uses flat stakes so it
+    can validate that signal without forcing the full race budget into action.
+    """
+    min_edge = max(min_edge, 0.20)
+    odds_arr = _odds_array(odds_dict)
+    top_idx = np.argsort(-probs)[:top_n]
+    ev = probs * odds_arr - 1.0
+
+    mask = np.zeros(120, dtype=bool)
+    mask[top_idx] = True
+    mask &= (
+        (ev >= min_edge)
+        & (ev <= max_edge)
+        & (odds_arr >= min_odds)
+        & (odds_arr <= max_odds)
+    )
+
+    candidates = np.where(mask)[0]
+    if len(candidates) == 0:
+        return {}
+
+    # Favor probability first inside the validated band; edge already passed.
+    selected = candidates[np.argsort(-probs[candidates])[:max_combos]]
+    affordable = min(int(budget // min_bet), len(selected))
+    return {COMBO_STRS[i]: min_bet for i in selected[:affordable]}
+
+
+def allocate_favorite_overlay_flat(
+    probs: np.ndarray,
+    odds_dict: dict,
+    budget: int     = 1000,
+    min_bet: int    = 100,
+    top_n: int      = 10,
+    max_combos: int = 2,
+    min_prob: float = 0.08,
+    min_edge: float = 0.05,
+    max_edge: float = 0.40,
+    min_odds: float = 3.0,
+    max_odds: float = 20.0,
+    **_,
+) -> dict:
+    """
+    High-probability overlay strategy.
+
+    It targets combos where the model is relatively confident, the market price
+    is not a lottery ticket, and raw EV is positive but not extreme.
+    """
+    odds_arr = _odds_array(odds_dict)
+    top_idx = np.argsort(-probs)[:top_n]
+    ev = probs * odds_arr - 1.0
+
+    mask = np.zeros(120, dtype=bool)
+    mask[top_idx] = True
+    mask &= (
+        (probs >= min_prob)
+        & (ev >= min_edge)
+        & (ev <= max_edge)
+        & (odds_arr >= min_odds)
+        & (odds_arr <= max_odds)
+    )
+
+    candidates = np.where(mask)[0]
+    if len(candidates) == 0:
+        return {}
+
+    selected = candidates[np.argsort(-probs[candidates])[:max_combos]]
+    affordable = min(int(budget // min_bet), len(selected))
+    return {COMBO_STRS[i]: min_bet for i in selected[:affordable]}
+
+
+def allocate_tail_value_probe(
+    probs: np.ndarray,
+    odds_dict: dict,
+    budget: int     = 1000,
+    min_bet: int    = 100,
+    top_n: int      = 20,
+    max_combos: int = 1,
+    min_prob: float = 0.01,
+    max_prob: float = 0.02,
+    min_edge: float = 0.80,
+    min_odds: float = 80.0,
+    max_odds: float = 300.0,
+    **_,
+) -> dict:
+    """
+    Tiny-stake tail value probe.
+
+    Most longshots are harmful, so this strategy is intentionally capped at one
+    flat stake. It only observes the narrow low-probability/high-odds pocket
+    that looked different in the current dry-run data.
+    """
+    min_edge = max(min_edge, 0.80)
+    odds_arr = _odds_array(odds_dict)
+    top_idx = np.argsort(-probs)[:top_n]
+    ev = probs * odds_arr - 1.0
+
+    mask = np.zeros(120, dtype=bool)
+    mask[top_idx] = True
+    mask &= (
+        (probs >= min_prob)
+        & (probs < max_prob)
+        & (ev >= min_edge)
+        & (odds_arr >= min_odds)
+        & (odds_arr <= max_odds)
+    )
+
+    candidates = np.where(mask)[0]
+    if len(candidates) == 0:
+        return {}
+
+    selected = candidates[np.argsort(-ev[candidates])[:max_combos]]
+    affordable = min(int(budget // min_bet), len(selected))
+    return {COMBO_STRS[i]: min_bet for i in selected[:affordable]}
+
+
 def build_bayes_strategy(
     history: list[dict],
     n_trials: int   = 50,
@@ -451,6 +583,9 @@ STRATEGIES: dict[str, Callable] = {
     "true_kelly_cap":  allocate_true_kelly_cap,
     "dutch_value":     allocate_dutch_value,
     "ip_conservative": allocate_ip_conservative,
+    "edge_band_flat":  allocate_edge_band_flat,
+    "favorite_overlay_flat": allocate_favorite_overlay_flat,
+    "tail_value_probe": allocate_tail_value_probe,
     # "bayes" は build_bayes_strategy() で動的に生成して追加する
 }
 
