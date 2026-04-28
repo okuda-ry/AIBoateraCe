@@ -17,6 +17,8 @@ from models.strategies import (
     allocate_edge_band_flat,
     allocate_favorite_overlay_flat,
     allocate_tail_value_probe,
+    allocate_rank_1_23_45,
+    allocate_rank_123_box,
     run_all_strategies,
     COMBO_STRS,
     COMBO_IDX,
@@ -279,6 +281,49 @@ class TestConservativeStrategies:
 
         assert len(result) == 1
         assert sum(result.values()) == 100
+
+
+class TestRankFormationStrategies:
+    def _ranked_probs(self):
+        weights = {1: 6.0, 2: 5.0, 3: 4.0, 4: 3.0, 5: 2.0, 6: 1.0}
+        probs = np.zeros(120)
+        for i, combo in enumerate(COMBO_STRS):
+            first = int(combo.split("-")[0])
+            probs[i] = weights[first]
+        return probs / probs.sum()
+
+    def test_rank_1_23_45_uses_predicted_rank_labels(self):
+        result = allocate_rank_1_23_45(self._ranked_probs(), {}, budget=1000)
+
+        assert result == {
+            "1-2-4": 100,
+            "1-2-5": 100,
+            "1-3-4": 100,
+            "1-3-5": 100,
+        }
+
+    def test_rank_123_box_buys_top_three_permutations(self):
+        result = allocate_rank_123_box(self._ranked_probs(), {}, budget=1000)
+
+        assert result == {
+            "1-2-3": 100,
+            "1-3-2": 100,
+            "2-1-3": 100,
+            "2-3-1": 100,
+            "3-1-2": 100,
+            "3-2-1": 100,
+        }
+
+    def test_rank_strategies_respect_budget(self):
+        probs = self._ranked_probs()
+
+        formation = allocate_rank_1_23_45(probs, {}, budget=300)
+        box = allocate_rank_123_box(probs, {}, budget=300)
+
+        assert sum(formation.values()) == 300
+        assert len(formation) == 3
+        assert sum(box.values()) == 300
+        assert len(box) == 3
 
 
 # -------------------------------------------------------

@@ -918,6 +918,8 @@ body{background:var(--bg);color:var(--fg);font-family:'Inter Tight','Noto Sans J
 .strategy-badge.strategy-true_kelly_cap{background:rgba(47,214,122,.12);color:var(--green);border:1px solid rgba(47,214,122,.32)}
 .strategy-badge.strategy-dutch_value{background:rgba(255,138,61,.12);color:var(--accent-2);border:1px solid rgba(255,138,61,.32)}
 .strategy-badge.strategy-ip_conservative{background:rgba(92,183,255,.12);color:var(--blue);border:1px solid rgba(92,183,255,.32)}
+.strategy-badge.strategy-rank_1_23_45{background:rgba(236,31,63,.10);color:#ff7b8c;border:1px solid rgba(236,31,63,.28)}
+.strategy-badge.strategy-rank_123_box{background:rgba(255,255,255,.08);color:var(--fg);border:1px solid rgba(255,255,255,.18)}
 @media (max-width:760px){.strategy-card-grid{grid-template-columns:1fr}.strategy-compare-head{flex-direction:column}.strategy-metrics{grid-template-columns:1fr 1fr 1fr}}
 
 /* History strategy table grouping */

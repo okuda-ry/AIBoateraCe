@@ -85,6 +85,25 @@ def _kelly_fractions(probs: np.ndarray, odds_arr: np.ndarray, candidates: np.nda
     return np.maximum(kelly_f, 0.0)
 
 
+def _predicted_lane_order(probs: np.ndarray) -> list[int]:
+    """Return lanes ordered by marginal first-place probability, as 0-based lanes."""
+    first_probs = np.zeros(6)
+    for i, (first, _, _) in enumerate(_COMBOS):
+        first_probs[first] += probs[i]
+    return list(np.argsort(-first_probs))
+
+
+def _flat_combo_bets(combos: list[tuple[int, int, int]], budget: int, min_bet: int) -> dict:
+    """Convert 0-based lane combos to flat-stake bets within budget."""
+    if budget < min_bet:
+        return {}
+    affordable = min(int(budget // min_bet), len(combos))
+    return {
+        f"{a+1}-{b+1}-{c+1}": min_bet
+        for a, b, c in combos[:affordable]
+    }
+
+
 # -------------------------------------------------------
 # 戦略1: Kelly 規準
 # -------------------------------------------------------
@@ -481,6 +500,56 @@ def allocate_tail_value_probe(
     return {COMBO_STRS[i]: min_bet for i in selected[:affordable]}
 
 
+def allocate_rank_1_23_45(
+    probs: np.ndarray,
+    odds_dict: dict,
+    budget: int  = 1000,
+    min_bet: int = 100,
+    **_,
+) -> dict:
+    """
+    Prediction-rank formation: 1-23-45.
+
+    The labels are predicted rank labels, not lane numbers:
+    - rank #1 boat fixed in first place
+    - rank #2 or #3 in second place
+    - rank #4 or #5 in third place
+
+    This is a simple flat-stake observation strategy and intentionally ignores
+    odds/EV so it can be compared against value-based strategies.
+    """
+    order = _predicted_lane_order(probs)
+    if len(order) < 5:
+        return {}
+    combos = [
+        (order[0], order[1], order[3]),
+        (order[0], order[1], order[4]),
+        (order[0], order[2], order[3]),
+        (order[0], order[2], order[4]),
+    ]
+    return _flat_combo_bets(combos, budget=budget, min_bet=min_bet)
+
+
+def allocate_rank_123_box(
+    probs: np.ndarray,
+    odds_dict: dict,
+    budget: int  = 1000,
+    min_bet: int = 100,
+    **_,
+) -> dict:
+    """
+    Prediction-rank 123 box.
+
+    Buy every trifecta permutation of the top three boats by marginal
+    first-place probability. This is also flat-staked and ignores odds/EV.
+    """
+    order = _predicted_lane_order(probs)
+    if len(order) < 3:
+        return {}
+    combos = list(permutations(order[:3], 3))
+    return _flat_combo_bets(combos, budget=budget, min_bet=min_bet)
+
+
 def build_bayes_strategy(
     history: list[dict],
     n_trials: int   = 50,
@@ -586,6 +655,8 @@ STRATEGIES: dict[str, Callable] = {
     "edge_band_flat":  allocate_edge_band_flat,
     "favorite_overlay_flat": allocate_favorite_overlay_flat,
     "tail_value_probe": allocate_tail_value_probe,
+    "rank_1_23_45":   allocate_rank_1_23_45,
+    "rank_123_box":   allocate_rank_123_box,
     # "bayes" は build_bayes_strategy() で動的に生成して追加する
 }
 

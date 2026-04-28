@@ -66,6 +66,7 @@ _PREFERRED_STRATEGY_ORDER = [
     "kelly", "ip", "strict_flat", "true_kelly_cap",
     "dutch_value", "ip_conservative", "edge_band_flat",
     "favorite_overlay_flat", "tail_value_probe",
+    "rank_1_23_45", "rank_123_box",
 ]
 
 
