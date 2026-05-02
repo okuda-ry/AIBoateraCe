@@ -31,7 +31,11 @@
 4. 「ウェブフックURLをコピー」
 5. プロジェクトの .env に追記:
    DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxxx/yyyy
+   DISCORD_NOTIFY_JCDS=04
 ```
+
+`DISCORD_NOTIFY_JCDS` は通知対象の場コード。初期運用では平和島（`04`）のみ通知する。
+全場通知は `*`、複数場通知は `04,05` のようにカンマ区切りで指定する。
 
 ---
 
@@ -52,11 +56,12 @@ orchestrator.py 側の変更は最小限（呼び出し1行追加のみ）。
 
 | イベント | タイミング | 送信先 | 内容 |
 |----------|-----------|--------|------|
-| **買い目通知** | 発走5分前（予測完了後） | Discord + LINE | 会場・R番・買い目一覧・EV・オッズ |
+| **予測通知** | 発走5分前（予測完了後） | Discord | 会場・R番・戦略別買い目一覧・確率・EV・オッズ |
 | **結果通知** | 発走35分後（結果確定後） | Discord のみ | 3連単結果・払戻・各戦略の的中/損益 |
 | **日次レポート** | 毎日21:00 | Discord + LINE | 当日の全戦略サマリー |
 
 > LINE は文字数制限・フォーマット制約があるため、結果通知は Discord のみ（Embed で見やすく表示）。
+> 現在の実装済み範囲は、平和島に絞った **予測通知**。結果通知・日次Discordレポートは次ステップ。
 
 ---
 
@@ -122,10 +127,10 @@ ip      45,000  -1,500   97%  1回
 
 ```python
 # Discord Webhook 送信コア
-def send_discord(embeds: list[dict]) -> bool
+def send_discord_message(content: str = "", embeds: list[dict] | None = None) -> bool
 
-# 買い目通知（Discord）
-def notify_discord_bet(race: dict, strategy_bets: dict, odds_dict: dict, confidence: float) -> bool
+# 予測通知（Discord）
+def notify_discord_prediction(race: dict, strategy_bets: dict, odds_dict: dict, probs_120=None, confidence: float | None = None) -> bool
 
 # 結果通知（Discord）
 def notify_discord_result(race: dict, result_combo: str, payout: int, strategy_bets: dict) -> bool
@@ -138,18 +143,19 @@ def notify_discord_daily(summary: dict, strategies: list[dict]) -> bool
 
 ```
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxxx/yyyy
+DISCORD_NOTIFY_JCDS=04
 ```
 
 ---
 
 ## 8. `orchestrator.py` への変更内容
 
-変更は最小限。既存の `job_predict` / `job_collect_result` / `job_line_daily_report` に1〜2行追加するだけ。
+変更は最小限。まずは `job_predict` の末尾に予測通知を追加する。
 
 ```python
 # job_predict の末尾に追加
-from auto.notifier import notify_discord_bet
-notify_discord_bet(race, strategy_bets, odds_dict, confidence)
+from auto.notifier import notify_discord_prediction
+notify_discord_prediction(race, strategy_bets, odds_dict, probs_120, confidence)
 
 # job_collect_result の末尾に追加
 from auto.notifier import notify_discord_result
@@ -171,8 +177,7 @@ run_auto.py 起動
     │    job_predict()
     │        └─ run_prediction() → run_all_strategies()
     │               └─ save_all_strategies()  ← DB保存
-    │               └─ notify_discord_bet()   ← Discord通知 ★
-    │               └─ notify_bet_signal()    ← LINE通知（既存）
+    │               └─ notify_discord_prediction() ← Discord通知 ★（初期運用は平和島のみ）
     │
     ├─ 発走35分後
     │    job_collect_result()

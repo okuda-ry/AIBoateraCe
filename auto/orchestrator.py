@@ -28,7 +28,7 @@ from auto.recorder import (
     save_all_strategies,
     update_result, print_daily_summary, daily_summary,
 )
-from auto.notifier import notify_daily_summary, send_line_message
+from auto.notifier import notify_daily_summary, notify_discord_prediction
 
 # -------------------------------------------------------
 # 設定
@@ -107,6 +107,17 @@ def job_predict(race: dict, budget: int, min_edge: float) -> None:
             print(f"[orchestrator] 全戦略完了 (ドライラン: 実際の投票は行いません)")
         else:
             print(f"[orchestrator] 全戦略: 見送り推奨（期待値プラスの組み合わせなし）")
+
+        notify_discord_prediction(
+            race          = race,
+            strategy_bets = strategy_bets,
+            odds_dict     = odds_dict,
+            probs_120     = probs_120,
+            confidence    = result.get("confidence", 0.0) / 100,
+            budget        = budget,
+            min_edge      = min_edge,
+            prediction_result = result,
+        )
 
     except Exception:
         print(f"[orchestrator] 予測エラー: {race_id}")

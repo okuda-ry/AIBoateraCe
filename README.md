@@ -446,7 +446,21 @@ LINE_USER_ID=<自分のユーザーID (Uxxxxxxxx...)>
 
 LINE の設定が不要な場合は `.env` を作成しなくても動作する（通知がスキップされるだけ）。
 
-#### 3. 通知テスト
+#### 3. Discord 通知の設定（任意）
+
+Discord サーバーの通知チャンネルで Webhook URL を発行し、`.env` に追記する。
+初期設定では、発走5分前の予測完了時に **平和島（jcd=04）だけ** Discord へ通知する。
+
+```
+# .env
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxxx/yyyy
+DISCORD_NOTIFY_JCDS=04
+```
+
+全場を通知したい場合は `DISCORD_NOTIFY_JCDS=*`、複数場なら `DISCORD_NOTIFY_JCDS=04,05` のように指定する。
+Discord の設定がない場合も、予測・DB記録・LINE通知はそのまま動作する。
+
+#### 4. 通知テスト
 
 ```bash
 python auto/notifier.py
@@ -492,6 +506,7 @@ python run_auto.py --date 20260405
 
 発走 5分前     予測実行（オッズ取得 → バリューベット計算）
                → DB に予測結果とベット候補を記録
+               → 平和島のみ Discord に予測通知（設定時）
 
 発走 35分後    scrape_result() でレース結果を取得
                → DB に結果・払戻・損益を記録
